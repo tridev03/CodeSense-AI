@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { ChevronLeft, ChevronRight, LayoutDashboard, Database, MessageSquare, Search } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { ChevronLeft, ChevronRight, LayoutDashboard, Database, MessageSquare, Search, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth-context";
 
 const sidebarLinks = [
   { label: "Dashboard", href: "/app", icon: LayoutDashboard },
@@ -15,6 +16,8 @@ const sidebarLinks = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { logout, user } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
@@ -28,6 +31,11 @@ export function AppSidebar() {
     const newVal = !isCollapsed;
     setIsCollapsed(newVal);
     localStorage.setItem("sidebar_collapsed", JSON.stringify(newVal));
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
   };
 
   if (!isMounted) return null;
@@ -65,8 +73,28 @@ export function AppSidebar() {
         })}
       </nav>
 
-      {/* Toggle Button */}
-      <div className="p-2 border-t border-[#242424]">
+      {/* Bottom: user email + logout */}
+      <div className="border-t border-[#242424] p-2 space-y-1">
+        {!isCollapsed && user && (
+          <div className="px-3 py-1.5 mb-1">
+            <p className="text-[10px] text-[#52525B] uppercase tracking-wider font-medium">Signed in as</p>
+            <p className="text-xs text-[#A1A1AA] truncate font-mono mt-0.5">{user.email}</p>
+          </div>
+        )}
+
+        {/* Logout button */}
+        <button
+          onClick={handleLogout}
+          title={isCollapsed ? "Sign Out" : undefined}
+          className={`flex items-center gap-3 px-3 py-2 rounded-md w-full transition-colors text-zinc-400 hover:text-red-400 hover:bg-red-500/10 ${
+            isCollapsed ? "justify-center" : ""
+          }`}
+        >
+          <LogOut className="w-5 h-5 shrink-0" />
+          {!isCollapsed && <span className="text-sm font-medium">Sign Out</span>}
+        </button>
+
+        {/* Toggle Button */}
         <Button
           variant="ghost"
           size="icon"

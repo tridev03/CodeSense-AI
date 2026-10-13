@@ -1,12 +1,13 @@
-   "use client";
+"use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Cpu, Menu, X, Activity } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { Cpu, Menu, X, LogOut, User } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useBackendStatus } from "@/hooks/use-backend-status";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { useAuth } from "@/lib/auth-context";
 
 const navLinks = [
   { label: "Dashboard", href: "/app/repositories" },
@@ -16,8 +17,15 @@ const navLinks = [
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { isOnline, health, services } = useBackendStatus();
+  const { user, logout } = useAuth();
+
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full h-14 border-b border-[#242424] bg-black/60 backdrop-blur-md">
@@ -112,17 +120,39 @@ export function Navbar() {
             </TooltipContent>
           </Tooltip>
 
-          <Link
-            href="/login"
-            className="text-xs font-medium text-[#A1A1AA] hover:text-[#D99A45] transition-colors px-3 py-1.5"
-          >
-            Sign In
-          </Link>
-          <Link href="/app/repositories">
-            <Button className="bg-[#D99A45] hover:bg-[#D99A45]/90 text-black text-xs font-medium h-8 px-3.5 rounded-xl transition-all shadow-md shadow-[#D99A45]/10">
-              Open App
-            </Button>
-          </Link>
+          {/* Auth section — show user email + logout if logged in, else Sign In */}
+          {user ? (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#101010] border border-[#242424]">
+                <User className="w-3 h-3 text-[#D99A45]" />
+                <span className="text-[11px] font-mono text-[#A1A1AA] max-w-[120px] truncate">
+                  {user.email}
+                </span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1.5 text-xs font-medium text-[#A1A1AA] hover:text-red-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-red-500/10"
+                title="Sign out"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">Sign Out</span>
+              </button>
+            </div>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="text-xs font-medium text-[#A1A1AA] hover:text-[#D99A45] transition-colors px-3 py-1.5"
+              >
+                Sign In
+              </Link>
+              <Link href="/app/repositories">
+                <Button className="bg-[#D99A45] hover:bg-[#D99A45]/90 text-black text-xs font-medium h-8 px-3.5 rounded-xl transition-all shadow-md shadow-[#D99A45]/10">
+                  Open App
+                </Button>
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Mobile: Burger */}
@@ -150,18 +180,36 @@ export function Navbar() {
             </Link>
           ))}
           <div className="flex flex-col gap-2 pt-4 border-t border-[#1C1C1C]">
-            <Link
-              href="/login"
-              className="text-sm font-medium text-[#A1A1AA] hover:text-[#D99A45] py-2"
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              Sign In
-            </Link>
-            <Link href="/app/repositories" onClick={() => setIsMobileMenuOpen(false)}>
-              <Button className="bg-[#D99A45] text-black w-full justify-center text-xs h-9 rounded-xl">
-                Open App
-              </Button>
-            </Link>
+            {user ? (
+              <>
+                <div className="flex items-center gap-2 text-xs text-[#A1A1AA] py-1">
+                  <User className="w-3.5 h-3.5 text-[#D99A45]" />
+                  <span className="truncate">{user.email}</span>
+                </div>
+                <button
+                  onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }}
+                  className="flex items-center gap-2 text-sm font-medium text-red-400 hover:text-red-300 py-2"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="text-sm font-medium text-[#A1A1AA] hover:text-[#D99A45] py-2"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Sign In
+                </Link>
+                <Link href="/app/repositories" onClick={() => setIsMobileMenuOpen(false)}>
+                  <Button className="bg-[#D99A45] text-black w-full justify-center text-xs h-9 rounded-xl">
+                    Open App
+                  </Button>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}
