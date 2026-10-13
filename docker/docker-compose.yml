@@ -1,0 +1,222 @@
+# ────────────────────────────────────────────────────────────────────────────
+#  AI Knowledge Agent — Core Infrastructure & Application Services
+#  Services: PostgreSQL, Qdrant, FastAPI Backend API, Redis, Celery Worker
+#  Usage:  docker compose -f docker/docker-compose.yml up -d
+# ────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Frontend Next.js Web App ──────────────────────────────────────────────
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    container_name: ai_knowledge_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1024M
+    networks:
+      - internal_network
+
+  # ── Backend API Service ───────────────────────────────────────────────────
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: ai_knowledge_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_knowledge_agent
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_URL=redis://redis:6379/0
+      - EMBEDDING_DEVICE=cpu
+      - RERANKER_DEVICE=cpu
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - repo_storage:/app/storage/repos
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/liveness"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4096M
+    networks:
+      - internal_network
+
+  # ── Celery Background Worker ──────────────────────────────────────────────
+  # Runs the same Docker image as `backend` but launches Celery workers
+  # instead of the FastAPI server. Scale horizontally with:
+  #   docker compose -f docker/docker-compose.yml up -d --scale worker=4
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: ai_knowledge_worker
+    restart: unless-stopped
+    command:
+    - celery
+    - -A
+    - backend.worker.celery_app:app m  ,
+    - worker
+    - --loglevel=info
+    - --concurrency=${CELERY_CONCURRENCY:-2}
+    - --queues=celery
+    - --hostname=worker@%h
+      
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_knowledge_agent
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-qwen/qwen3.8-27b}
+      - EMBEDDING_DEVICE=cpu
+      - RERANKER_DEVICE=cpu
+      - CELERY_CONCURRENCY=${CELERY_CONCURRENCY:-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - repo_storage:/app/storage/repos
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4096M
+    networks:
+      - internal_network
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai_knowledge_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ai_knowledge_agent
+    ports:
+      - "127.0.0.1:5432:5432"  # Bound to loopback to prevent external exposure (DEP-04)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_knowledge_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1024M
+    networks:
+      - internal_network
+
+  # ── Qdrant Vector Database ──────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.12.0
+    container_name: ai_knowledge_qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"   # Bound to loopback (DEP-04)
+      - "127.0.0.1:6334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
+    healthcheck:
+      test: ["CMD", "/usr/bin/bash", "-c", "echo > /dev/tcp/127.0.0.1/6333"]
+      #test: ["CMD", "/bin/sh", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2048M
+    networks:
+      - internal_network
+
+  # ── Redis Message Broker ──────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ai_knowledge_redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"  # Bound to loopback (DEP-04)
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfilename redis.aof
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    networks:
+      - internal_network
+
+networks:
+  internal_network:
+    name: ai_knowledge_internal_network
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: ai_knowledge_postgres_data
+  qdrant_data:
+    name: ai_knowledge_qdrant_data
+  repo_storage:
+    name: ai_knowledge_repo_storage
+  redis_data:
+    name: ai_knowledge_redis_data

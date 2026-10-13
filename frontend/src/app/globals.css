@@ -1,0 +1,134 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+  --font-heading: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Custom Amber SaaS tokens */
+  --color-surface: #080808;
+  --color-surface-2: #0D0D0D;
+  --color-card-elevated: #101010;
+  --color-card-hover: #141414;
+  --color-border-subtle: #242424;
+  --color-border-hover: #303030;
+  --color-amber: #D99A45;
+  --color-amber-deep: #6B421D;
+}
+
+:root {
+  --background: #000000;
+  --foreground: #F5F5F5;
+  --card: #101010;
+  --card-foreground: #F5F5F5;
+  --popover: #0D0D0D;
+  --popover-foreground: #F5F5F5;
+  --primary: #D99A45;
+  --primary-foreground: #000000;
+  --secondary: #141414;
+  --secondary-foreground: #F5F5F5;
+  --muted: #141414;
+  --muted-foreground: #71717A;
+  --accent: #1A1408;
+  --accent-foreground: #D99A45;
+  --destructive: #EF4444;
+  --border: #242424;
+  --input: #242424;
+  --ring: #D99A45;
+  --radius: 0.75rem;
+
+  --color-surface: #080808;
+  --color-surface-2: #0D0D0D;
+  --color-card: #101010;
+  --color-card-hover: #141414;
+  --color-border: #242424;
+  --color-border-hover: #303030;
+  --color-amber: #D99A45;
+  --color-amber-deep: #6B421D;
+  --color-amber-glow: rgba(217, 154, 69, 0.12);
+  --color-text-primary: #F5F5F5;
+  --color-text-secondary: #A1A1AA;
+  --color-text-muted: #71717A;
+}
+
+.dark {
+  --background: #000000;
+  --foreground: #F5F5F5;
+  --card: #101010;
+  --card-foreground: #F5F5F5;
+  --popover: #0D0D0D;
+  --popover-foreground: #F5F5F5;
+  --primary: #D99A45;
+  --primary-foreground: #000000;
+  --secondary: #141414;
+  --secondary-foreground: #F5F5F5;
+  --muted: #141414;
+  --muted-foreground: #71717A;
+  --accent: #1A1408;
+  --accent-foreground: #D99A45;
+  --destructive: #EF4444;
+  --border: #242424;
+  --input: #242424;
+  --ring: #D99A45;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-black text-[#F5F5F5] font-sans antialiased;
+  }
+}
+
+@layer utilities {
+  .bg-surface { background-color: var(--color-surface); }
+  .bg-surface-2 { background-color: var(--color-surface-2); }
+  .bg-card { background-color: var(--color-card); }
+  .border-app { border-color: var(--color-border); }
+  .text-amber { color: var(--color-amber); }
+  .border-amber { border-color: var(--color-amber); }
+  .ring-amber { --tw-ring-color: var(--color-amber); }
+}

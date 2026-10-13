@@ -1,0 +1,53 @@
+# ────────────────────────────────────────────────────────────────────────────
+#  AI Knowledge Agent — Backend Production Dockerfile
+#  Multi-stage build for optimal image size and security
+# ────────────────────────────────────────────────────────────────────────────
+
+FROM python:3.11-slim as builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip install --no-cache-dir --prefix=/install alembic>=1.13.0 langfuse>=2.0.0
+
+
+# ── Final Runtime Image ──────────────────────────────────────────────────────
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install git runtime dependency for repository ingestion
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /install /usr/local
+COPY backend /app/backend
+COPY alembic /app/alembic
+COPY alembic.ini /app/alembic.ini
+
+# Create non-privileged service user
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/storage/repos && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8000
+
+ENV PYTHONUNBUFFERED=1
+ENV ENVIRONMENT=production
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health/liveness || exit 1
+
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+

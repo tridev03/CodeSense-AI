@@ -1,0 +1,84 @@
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ─── Virtual Environments ─────────────────────────────────────────────────────
+.venv/
+venv/
+ENV/
+env/
+.env.local
+
+# ─── Environment / Secrets ────────────────────────────────────────────────────
+.env
+*.env
+!.env.example
+
+# ─── IDE ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ─── Testing ──────────────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.coveragerc
+.tox/
+
+# ─── Storage ──────────────────────────────────────────────────────────────────
+storage/
+*.db
+*.sqlite
+*.sqlite3
+
+# ─── Node / Frontend ──────────────────────────────────────────────────────────
+node_modules/
+.next/
+frontend/.env.local
+frontend/out/
+frontend/build/
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+docker/postgres-data/
+docker/qdrant-data/
+
+# ─── ML Model Cache ───────────────────────────────────────────────────────────
+.cache/
+models/
+*.bin
+*.safetensors
+*.gguf
+
+# ─── Evaluation Results ───────────────────────────────────────────────────────
+evaluation/results/*.json
+evaluation/results/*.csv
+
+# ─── Misc ─────────────────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.bak

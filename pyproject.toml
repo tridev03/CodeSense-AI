@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["backend/tests"]
+# Add project root to sys.path so `from backend.xxx import yyy` works
+pythonpath = ["."]
+log_cli = true
+log_cli_level = "WARNING"
