@@ -50,8 +50,8 @@ services:
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_knowledge_agent
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
-      - EMBEDDING_DEVICE=cpu
-      - RERANKER_DEVICE=cpu
+      - EMBEDDING_DEVICE=cuda
+      - RERANKER_DEVICE=cuda
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,8 +70,13 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 4096M
+          cpus: "4.0"
+          memory: 6144M
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     networks:
       - internal_network
 
@@ -86,26 +91,25 @@ services:
     container_name: ai_knowledge_worker
     restart: unless-stopped
     command:
-    - celery
-    - -A
-    - backend.worker.celery_app:app m  ,
-    - worker
-    - --loglevel=info
-    - --concurrency=${CELERY_CONCURRENCY:-2}
-    - --queues=celery
-    - --hostname=worker@%h
-      
+      - celery
+      - -A
+      - backend.worker.celery_app:app
+      - worker
+      - -I
+      - backend.worker.celery_tasks
+      - --loglevel=info
+      - --concurrency=${CELERY_CONCURRENCY:-2}
+      - --queues=celery
+      - --hostname=worker@%h
+    env_file:
+      - ../.env
     environment:
       - ENVIRONMENT=production
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_knowledge_agent
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=${SECRET_KEY}
-      - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - GROQ_MODEL=${GROQ_MODEL:-qwen/qwen3.8-27b}
-      - EMBEDDING_DEVICE=cpu
-      - RERANKER_DEVICE=cpu
-      - CELERY_CONCURRENCY=${CELERY_CONCURRENCY:-2}
+      - EMBEDDING_DEVICE=cuda
+      - RERANKER_DEVICE=cuda
     depends_on:
       postgres:
         condition: service_healthy
@@ -118,8 +122,13 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 4096M
+          cpus: "4.0"
+          memory: 6144M
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     networks:
       - internal_network
 

@@ -97,3 +97,7 @@ def get_registered_tasks() -> Dict[str, Any]:
         except Exception as exc:
             logger.warning("Celery task registration skipped: %s", exc)
     return _tasks
+
+
+# Register tasks on import
+get_registered_tasks()
