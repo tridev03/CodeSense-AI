@@ -2,7 +2,7 @@
 
 > A production-oriented developer intelligence system that understands software repositories and answers developer questions using source code, documentation, and Git history.
 
-## ✅ IMPLEMENTED — Phases 1 to 8: Foundation, Ingestion, Core RAG, Retrieval Engineering, Git Intelligence, Agentic RAG, Evaluation & Production
+## Phases 1 to 8: Foundation, Ingestion, Core RAG, Retrieval Engineering, Git Intelligence, Agentic RAG, Evaluation & Production
 
 **Status: Complete. All 106 tests passing.**
 
@@ -88,27 +88,27 @@ graph TB
 
 | Layer | Technology | Status |
 |-------|-----------|--------|
-| Backend framework | FastAPI + uvicorn | ✅ Phase 1 |
-| Database (app metadata) | PostgreSQL + SQLAlchemy 2.0 async | ✅ Phase 1 |
-| Configuration | Pydantic Settings v2 | ✅ Phase 1 |
-| Logging | structlog | ✅ Phase 1 |
-| Testing | pytest + pytest-asyncio + SQLite in-memory | ✅ Phase 1 |
-| Repository Loader / Cloner | GitPython (shallow clones) + Local path loader | ✅ Phase 2 |
-| File Scanner & Filter | Ignore rules, binary detection, size limits | ✅ Phase 2 |
-| AST Code Parsing | tree-sitter ≥0.23 (Python, JS, TS/TSX) | ✅ Phase 2 |
-| Semantic Chunking | AST structure, context headers, Markdown & configs | ✅ Phase 2 |
-| Embeddings | Qwen3-Embedding-0.6B (1024-dim) | ✅ Phase 3 |
-| Vector DB | Qdrant (repo collection isolation) | ✅ Phase 3 |
-| LLM Generation | Groq (qwen/qwen3.8-27b) | ✅ Phase 3 |
-| Grounded Citations | Line-range source citations `[file#L{start}-L{end}]` | ✅ Phase 3 |
-| BM25 Keyword Search | rank-bm25 (BM25Okapi with code tokenizer) | ✅ Phase 4 |
-| Hybrid Search | Reciprocal Rank Fusion (RRF, $k=60$) | ✅ Phase 4 |
-| Cross-Encoder Reranker | BAAI/bge-reranker-base | ✅ Phase 4 |
-| Retrieval Ablation & Metrics | Recall@K, MRR@K, nDCG@K, HitRate@K 4-way ablation | ✅ Phase 4 |
-| Git Intelligence | Git history, commit graph, diff search, historical citations | ✅ Phase 5 |
-| Agent | LangGraph StateGraph, multi-tool routing, reflection | ✅ Phase 6 |
-| LLM Evaluation | Faithfulness, Answer Relevance, Context Recall/Precision, Synthetic QA | ✅ Phase 7 |
-| Observability & Production | Langfuse Tracing, Alembic Migrations, Task Worker, Rate Limiter | ✅ Phase 8 |
+| Backend framework | FastAPI + uvicorn |  Phase 1 |
+| Database (app metadata) | PostgreSQL + SQLAlchemy 2.0 async |  Phase 1 |
+| Configuration | Pydantic Settings v2 |  Phase 1 |
+| Logging | structlog |  Phase 1 |
+| Testing | pytest + pytest-asyncio + SQLite in-memory |  Phase 1 |
+| Repository Loader / Cloner | GitPython (shallow clones) + Local path loader |  Phase 2 |
+| File Scanner & Filter | Ignore rules, binary detection, size limits |  Phase 2 |
+| AST Code Parsing | tree-sitter ≥0.23 (Python, JS, TS/TSX) |  Phase 2 |
+| Semantic Chunking | AST structure, context headers, Markdown & configs |  Phase 2 |
+| Embeddings | Qwen3-Embedding-0.6B (1024-dim) |  Phase 3 |
+| Vector DB | Qdrant (repo collection isolation) |  Phase 3 |
+| LLM Generation | Groq (qwen/qwen3.8-27b) |  Phase 3 |
+| Grounded Citations | Line-range source citations `[file#L{start}-L{end}]` |  Phase 3 |
+| BM25 Keyword Search | rank-bm25 (BM25Okapi with code tokenizer) |  Phase 4 |
+| Hybrid Search | Reciprocal Rank Fusion (RRF, $k=60$) |  Phase 4 |
+| Cross-Encoder Reranker | BAAI/bge-reranker-base |  Phase 4 |
+| Retrieval Ablation & Metrics | Recall@K, MRR@K, nDCG@K, HitRate@K 4-way ablation |  Phase 4 |
+| Git Intelligence | Git history, commit graph, diff search, historical citations |  Phase 5 |
+| Agent | LangGraph StateGraph, multi-tool routing, reflection |  Phase 6 |
+| LLM Evaluation | Faithfulness, Answer Relevance, Context Recall/Precision, Synthetic QA |  Phase 7 |
+| Observability & Production | Langfuse Tracing, Alembic Migrations, Task Worker, Rate Limiter |  Phase 8 |
 | Frontend | Next.js 14 + Tailwind | 🔲 Phase 9 |
 
 ---
@@ -124,22 +124,22 @@ ai-knowledge-agent/
 │   │       ├── health.py         # GET /health
 │   │       ├── repositories.py   # Repository CRUD, indexing, /search, /chat, /evaluate-retrieval
 │   │       └── git.py            # Git commits, /git/search, /git/file-history
-│   ├── agents/                   # 🔲 Phase 6 — LangGraph agent
-│   ├── ingestion/                # ✅ Phase 2 & 5 — parsing, chunking, Git extraction
+│   ├── agents/                   
+│   ├── ingestion/                # Phase 2 & 5 — parsing, chunking, Git extraction
 │   │   ├── git_extractor.py      # Git commit log, author, diff extraction & chunking
 │   │   ├── scanner.py            # Recursive file discovery & ignore filters
 │   │   ├── parsers/              # Tree-sitter AST parsers (Python, JS, TS)
 │   │   └── chunkers/             # AST-aligned code chunkers
-│   ├── retrieval/                # ✅ Phase 3-4 — vector + BM25 + hybrid
+│   ├── retrieval/                # Phase 3-4 — vector + BM25 + hybrid
 │   │   ├── tokenizer.py          # Code identifier tokenizer (camel/snake/pascal)
 │   │   ├── bm25.py               # Per-repository BM25Okapi index
 │   │   ├── fusion.py             # Reciprocal Rank Fusion (RRF)
 │   │   ├── hybrid.py             # Multi-stage HybridRetriever
 │   │   └── eval_retrieval.py     # Retrieval benchmark engine (Recall, MRR, nDCG, HitRate)
-│   ├── embeddings/               # ✅ Phase 3 — Qwen3 embeddings (1024-dim)
-│   ├── reranking/                # ✅ Phase 4 — BGE cross-encoder reranker
-│   ├── llm/                      # ✅ Phase 3 & 5 — Groq integration + Git citations
-│   ├── evaluation/               # 🔲 Phase 7 — metrics + experiments
+│   ├── embeddings/               # Phase 3 — Qwen3 embeddings (1024-dim)
+│   ├── reranking/                # Phase 4 — BGE cross-encoder reranker
+│   ├── llm/                      # Phase 3 & 5 — Groq integration + Git citations
+│   ├── evaluation/               # Phase 7 — metrics + experiments
 │   ├── config/
 │   │   └── settings.py           # Pydantic Settings (all env vars)
 │   ├── database/
@@ -265,16 +265,3 @@ Each test gets a fresh in-memory SQLite database (engine `scope="function"`) and
 
 ---
 
-## Development Phases
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| **1 — Foundation** | ✅ **Complete** | FastAPI, DB models, Repository CRUD, 28 tests |
-| **2 — Ingestion** | ✅ **Complete** | Tree-sitter AST parsing, semantic chunking, 42 tests |
-| **3 — RAG** | ✅ **Complete** | Qwen3 embeddings, Qdrant store, Groq generation, search/chat, 54 tests |
-| **4 — Retrieval** | ✅ **Complete** | BM25 keyword search, hybrid RRF, BGE reranking, ablation engine, 68 tests |
-| **5 — Git Intel** | ✅ **Complete** | Commit ingestion, diffs, Git-aware search, historical RAG, 73 tests |
-| **6 — Agent** | ✅ **Complete** | LangGraph multi-agent, code/docs/git tools, query routing, reflection, 89 tests |
-| **7 — Evaluation** | ✅ **Complete** | Faithfulness, Answer Relevance, Context Recall/Precision, Synthetic QA, 98 tests |
-| **8 — Production** | ✅ **Complete** | Docker, Alembic, Langfuse Tracing, Task Worker, Rate Limiting, 106 tests |
-| **9 — Frontend** | 🔲 Next | Next.js chat UI, citations, eval dashboard |
