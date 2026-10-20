@@ -61,6 +61,7 @@ services:
         condition: service_healthy
     volumes:
       - repo_storage:/app/storage/repos
+      - ../backend:/app/backend
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/liveness"]
       interval: 15s
@@ -119,6 +120,7 @@ services:
         condition: service_healthy
     volumes:
       - repo_storage:/app/storage/repos
+      - ../backend:/app/backend
     deploy:
       resources:
         limits:
