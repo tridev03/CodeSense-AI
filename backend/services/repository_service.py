@@ -87,11 +87,17 @@ class RepositoryService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def create_repository(self, payload: RepositoryCreate) -> Repository:
+    async def create_repository(
+        self, payload: RepositoryCreate, owner_id: Optional[uuid.UUID] = None
+    ) -> Repository:
         """
         Register a new repository.
 
         Does NOT start indexing — that is a separate explicit action.
+
+        Args:
+            payload: Repository creation payload.
+            owner_id: UUID of the user creating the repository (SEC-02).
 
         Raises:
             RepositoryAlreadyExistsError: if the URL is already registered.
@@ -113,6 +119,7 @@ class RepositoryService:
             source_type=source_type,
             branch=payload.branch,
             description=payload.description,
+            owner_id=owner_id,
         )
         await self._db.commit()
         logger.info(
@@ -136,13 +143,26 @@ class RepositoryService:
         return repo
 
     async def list_repositories(
-        self, *, skip: int = 0, limit: int = 20
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 20,
+        owner_id: Optional[uuid.UUID] = None,
     ) -> Tuple[Sequence[Repository], int]:
         """
         Return a paginated list of repositories and the total count.
+
+        When owner_id is provided, only that user's repositories are returned (SEC-02).
+        Superusers should pass owner_id=None to list all repositories.
         """
-        repos = await crud.list_repositories(self._db, skip=skip, limit=limit)
-        total = await crud.count_repositories(self._db)
+        if owner_id is not None:
+            repos = await crud.list_repositories_for_user(
+                self._db, owner_id, skip=skip, limit=limit
+            )
+            total = await crud.count_repositories_for_user(self._db, owner_id)
+        else:
+            repos = await crud.list_repositories(self._db, skip=skip, limit=limit)
+            total = await crud.count_repositories(self._db)
         return repos, total
 
     async def delete_repository(self, repository_id: uuid.UUID) -> None:
@@ -326,6 +346,7 @@ class RepositoryService:
             )
 
             # Update repository state
+            actual_branch = result.clone_result.branch if result.clone_result else None
             await crud.update_repository_status(
                 self._db,
                 repository_id,
@@ -333,6 +354,7 @@ class RepositoryService:
                 file_count=result.files_processed,
                 chunk_count=result.total_chunks,
                 commit_hash=commit_hash,
+                branch=actual_branch,
             )
             await self._db.commit()
             return result

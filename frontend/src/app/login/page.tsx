@@ -102,6 +102,12 @@ export default function LoginPage() {
                 <Label htmlFor="password" className="text-xs text-[#A1A1AA] uppercase tracking-wider">
                   Password
                 </Label>
+                <Link
+                  href="/reset-password"
+                  className="text-xs text-[#D99A45] hover:underline"
+                >
+                  Forgot password?
+                </Link>
               </div>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#71717A]" />
@@ -133,6 +139,28 @@ export default function LoginPage() {
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </>
               )}
+            </Button>
+
+            {/* Offline Preview / Dev Bypass */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                const dummyUser = {
+                  id: "dev-preview-user",
+                  email: "developer@preview.local",
+                  is_active: true,
+                  is_superuser: true,
+                  created_at: new Date().toISOString(),
+                };
+                localStorage.setItem("preview_dev_user", JSON.stringify(dummyUser));
+                localStorage.setItem("access_token", "dev_preview_token");
+                toast.success("Entered Preview Mode (Offline)");
+                window.location.href = "/app/chat";
+              }}
+              className="w-full h-10 border border-[#2B2B2B] hover:border-[#D99A45]/50 bg-[#141414] hover:bg-[#1A1A1A] text-[#A1A1AA] hover:text-[#F5F5F5] text-xs rounded-xl transition-colors mt-2"
+            >
+              🎨 View UI Preview (Without Backend)
             </Button>
           </form>
 

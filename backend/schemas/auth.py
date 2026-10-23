@@ -60,3 +60,23 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int = Field(..., description="Token lifetime in seconds")
+
+
+class ResetPasswordRequest(BaseModel):
+    """Request body for POST /auth/reset-password."""
+
+    email: EmailStr
+    new_password: str = Field(
+        ...,
+        min_length=8,
+        max_length=128,
+        description="New password (min 8 characters)",
+    )
+
+    @field_validator("new_password")
+    @classmethod
+    def password_not_trivial(cls, v: str) -> str:
+        if v.lower() in ("password", "12345678", "qwerty123"):
+            raise ValueError("Password is too common. Choose a stronger password.")
+        return v
+

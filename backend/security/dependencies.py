@@ -123,3 +123,38 @@ def _validate_token(token: str) -> CurrentUser:
         email=token_data.email,
         is_superuser=token_data.is_superuser,
     )
+
+
+# ── SEC-02: Tenant ownership guard ────────────────────────────────────────────
+
+
+async def require_repo_owner(
+    repository_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession,
+) -> None:
+    """
+    Ensure current_user owns repository_id.
+
+    Superusers bypass the check (they can access any repository).
+    Raises HTTP 403 if the user does not own the repository.
+    """
+    if current_user.is_superuser:
+        return
+
+    from backend.database import crud  # avoid circular imports at module level
+
+    try:
+        user_uuid = uuid.UUID(current_user.user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid user identity in token.",
+        )
+
+    owns = await crud.is_repository_owner(db, repository_id, user_uuid)
+    if not owns:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this repository.",
+        )

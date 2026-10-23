@@ -27,6 +27,7 @@ from backend.schemas.repository import (
     RepositoryListResponse,
     RepositoryResponse,
 )
+from backend.security.dependencies import CurrentUser, get_current_user, require_repo_owner
 from backend.services.repository_service import (
     RepositoryAlreadyExistsError,
     RepositoryNotFoundError,
@@ -56,10 +57,17 @@ def _service(db: AsyncSession = Depends(get_db)) -> RepositoryService:
 )
 async def create_repository(
     payload: RepositoryCreate,
+    current_user: CurrentUser = Depends(get_current_user),
     svc: RepositoryService = Depends(_service),
 ) -> RepositoryResponse:
     try:
-        repo = await svc.create_repository(payload)
+        import uuid as _uuid
+        owner_id: Optional[_uuid.UUID] = None
+        try:
+            owner_id = _uuid.UUID(current_user.user_id)
+        except (ValueError, AttributeError):
+            pass
+        repo = await svc.create_repository(payload, owner_id=owner_id)
         return RepositoryResponse.model_validate(repo)
     except RepositoryAlreadyExistsError as exc:
         raise HTTPException(
@@ -78,9 +86,19 @@ async def create_repository(
 async def list_repositories(
     skip: Annotated[int, Query(ge=0, description="Number of records to skip")] = 0,
     limit: Annotated[int, Query(ge=1, le=100, description="Max records to return")] = 20,
+    current_user: CurrentUser = Depends(get_current_user),
     svc: RepositoryService = Depends(_service),
 ) -> RepositoryListResponse:
-    repos, total = await svc.list_repositories(skip=skip, limit=limit)
+    import uuid as _uuid
+    # Superusers see all repos; regular users only see their own (SEC-02)
+    owner_id: Optional[_uuid.UUID] = None
+    if not current_user.is_superuser:
+        try:
+            owner_id = _uuid.UUID(current_user.user_id)
+        except (ValueError, AttributeError):
+            pass
+
+    repos, total = await svc.list_repositories(skip=skip, limit=limit, owner_id=owner_id)
     return RepositoryListResponse(
         items=[RepositoryResponse.model_validate(r) for r in repos],
         total=total,
@@ -99,9 +117,13 @@ async def list_repositories(
 )
 async def get_repository(
     repository_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
     svc: RepositoryService = Depends(_service),
+    db: AsyncSession = Depends(get_db),
 ) -> RepositoryResponse:
     try:
+        # Verify ownership before exposing the resource (SEC-02)
+        await require_repo_owner(repository_id, current_user, db)
         repo = await svc.get_repository(repository_id)
         return RepositoryResponse.model_validate(repo)
     except RepositoryNotFoundError as exc:
@@ -119,9 +141,12 @@ async def get_repository(
 )
 async def delete_repository(
     repository_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
     svc: RepositoryService = Depends(_service),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
     try:
+        await require_repo_owner(repository_id, current_user, db)
         await svc.delete_repository(repository_id)
     except RepositoryNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -143,9 +168,12 @@ async def delete_repository(
 )
 async def trigger_indexing(
     repository_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
     svc: RepositoryService = Depends(_service),
+    db: AsyncSession = Depends(get_db),
 ) -> IndexTriggerResponse:
     try:
+        await require_repo_owner(repository_id, current_user, db)
         job = await svc.trigger_indexing(repository_id)
 
         # Enqueue the background indexing pipeline task
@@ -154,7 +182,10 @@ async def trigger_indexing(
             task_queue = get_task_queue()
             await task_queue.submit_indexing_job(str(repository_id))
         except Exception as exc:
-            logger.warning("Could not submit indexing to task queue, falling back to direct worker: %s", exc)
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not submit indexing to task queue, falling back to direct worker: %s", exc
+            )
             from backend.worker.tasks import get_task_worker
             from backend.database.connection import get_db_context
             async def _bg_index():
@@ -186,9 +217,12 @@ async def trigger_indexing(
 )
 async def get_indexing_status(
     repository_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
     svc: RepositoryService = Depends(_service),
+    db: AsyncSession = Depends(get_db),
 ) -> Optional[IndexingJobResponse]:
     try:
+        await require_repo_owner(repository_id, current_user, db)
         job = await svc.get_indexing_status(repository_id)
         if job is None:
             return None
@@ -207,8 +241,12 @@ async def get_indexing_status(
 )
 async def stream_indexing_status(
     repository_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
+    # Ownership check before opening the stream
+    await require_repo_owner(repository_id, current_user, db)
+
     async def event_generator() -> AsyncGenerator[str, None]:
         svc = RepositoryService(db)
         while True:

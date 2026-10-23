@@ -151,9 +151,27 @@ def clone_repository(
                 authed_url = f"{parsed.scheme}://x-access-token:{settings.GITHUB_TOKEN}@{parsed.hostname}{parsed.path}"
                 clone_kwargs["url"] = authed_url
 
-        repo = git.Repo.clone_from(**clone_kwargs)
+        try:
+            repo = git.Repo.clone_from(**clone_kwargs)
+        except git.GitCommandError as exc:
+            err_msg = str(exc.stderr or exc)
+            if branch and ("Remote branch" in err_msg or "Could not find remote branch" in err_msg):
+                logger.warning(
+                    "Branch '%s' not found for %s, falling back to remote default branch: %s",
+                    branch, url, err_msg
+                )
+                if target.exists():
+                    shutil.rmtree(str(target))
+                clone_kwargs.pop("branch", None)
+                repo = git.Repo.clone_from(**clone_kwargs)
+            else:
+                raise
+
         commit_hash = str(repo.head.commit.hexsha)
-        active_branch = str(repo.active_branch) if not repo.head.is_detached else branch
+        try:
+            active_branch = str(repo.active_branch)
+        except TypeError:
+            active_branch = branch or "HEAD"
 
         logger.info(
             "Clone completed: commit=%s branch=%s",

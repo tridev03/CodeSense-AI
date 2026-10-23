@@ -11,7 +11,6 @@ import { useAuth } from "@/lib/auth-context";
 
 const navLinks = [
   { label: "Dashboard", href: "/app/repositories" },
-  { label: "Repositories", href: "/app/repositories" },
   { label: "Settings", href: "/app/settings" },
 ];
 
@@ -40,20 +39,8 @@ export function Navbar() {
           </span>
         </Link>
 
-        {/* Center: Desktop Nav */}
-        <nav className="hidden md:flex items-center gap-6">
-          {navLinks.map((link) => (
-            <Link
-              key={link.label}
-              href={link.href}
-              className={`text-xs font-medium transition-colors hover:text-[#D99A45] ${
-                pathname === link.href ? "text-[#D99A45]" : "text-[#A1A1AA]"
-              }`}
-            >
-              {link.label}
-            </Link>
-          ))}
-        </nav>
+        {/* Center: Clean Logo Centered / Empty */}
+        <div className="flex-1" />
 
         {/* Right: Auth & Live Status */}
         <div className="hidden md:flex items-center gap-3">
@@ -167,18 +154,20 @@ export function Navbar() {
       {/* Mobile Menu */}
       {isMobileMenuOpen && (
         <div className="md:hidden absolute top-14 left-0 w-full bg-[#0D0D0D] border-b border-[#242424] p-5 flex flex-col gap-4 shadow-2xl">
-          {navLinks.map((link) => (
-            <Link
-              key={link.label}
-              href={link.href}
-              className={`text-sm font-medium ${
-                pathname === link.href ? "text-[#D99A45]" : "text-[#A1A1AA]"
-              }`}
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              {link.label}
-            </Link>
-          ))}
+          <Link
+            href="/app/repositories"
+            className="text-sm font-medium text-[#A1A1AA] hover:text-[#D99A45]"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            Dashboard
+          </Link>
+          <Link
+            href="/app/chat"
+            className="text-sm font-medium text-[#A1A1AA] hover:text-[#D99A45]"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            Chat
+          </Link>
           <div className="flex flex-col gap-2 pt-4 border-t border-[#1C1C1C]">
             {user ? (
               <>

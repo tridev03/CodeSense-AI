@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, use } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   chatApi,
   agentApi,
@@ -66,7 +67,9 @@ const PROMPT_SUGGESTIONS = [
 
 export default function RepositoryChatPage({ params }: PageProps) {
   const { id } = use(params);
+  const router = useRouter();
   const [repo, setRepo] = useState<RepositoryResponse | null>(null);
+  const [allRepos, setAllRepos] = useState<RepositoryResponse[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -84,6 +87,7 @@ export default function RepositoryChatPage({ params }: PageProps) {
   // Restore messages from localStorage
   useEffect(() => {
     reposApi.get(id).then(setRepo).catch(() => {});
+    reposApi.list(0, 100).then((res) => setAllRepos(res.items)).catch(() => {});
     const saved = localStorage.getItem(`chat_history_${id}`);
     if (saved) {
       try {
@@ -396,7 +400,31 @@ export default function RepositoryChatPage({ params }: PageProps) {
         </div>
 
         {/* Controls */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {/* Repository Selector Dropdown */}
+          <div className="relative">
+            <FolderGit2 className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#D99A45] pointer-events-none" />
+            <select
+              value={id}
+              onChange={(e) => {
+                if (e.target.value === "none") {
+                  router.push("/app/chat");
+                } else {
+                  router.push(`/app/chat/${e.target.value}`);
+                }
+              }}
+              className="appearance-none pl-8 pr-7 py-1.5 bg-[#141414] hover:bg-[#1A1A1A] border border-[#2D2D2D] hover:border-[#D99A45]/50 rounded-xl text-xs text-[#F5F5F5] font-medium transition-colors cursor-pointer outline-none focus:border-[#D99A45]"
+            >
+              <option value="none">📁 Switch to Direct / File Chat</option>
+              {allRepos.map((r) => (
+                <option key={r.id} value={r.id}>
+                  📦 {r.name} {r.status === "indexed" ? "✓" : `(${r.status})`}
+                </option>
+              ))}
+            </select>
+            <ChevronRight className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 rotate-90 text-[#71717A] pointer-events-none" />
+          </div>
+
           <div className="flex items-center gap-2">
             <Switch
               id="agent-mode"

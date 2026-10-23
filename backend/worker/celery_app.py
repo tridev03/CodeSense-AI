@@ -90,15 +90,10 @@ def make_celery_app():
         beat_schedule={},
     )
 
-    # Auto-discover tasks in the worker package
+    # NOTE: Do NOT call get_registered_tasks() here — celery_tasks.py
+    # imports this module (celery_app), which would create a circular import.
+    # Tasks are discovered via app.autodiscover_tasks() below.
     app.autodiscover_tasks(["backend.worker"])
-
-    # Ensure tasks are registered immediately
-    try:
-        from backend.worker.celery_tasks import get_registered_tasks
-        get_registered_tasks()
-    except Exception as exc:
-        logger.warning("Could not pre-register Celery tasks: %s", exc)
 
     logger.info("Celery app configured with broker=%s", redis_url[:30] + "…")
     return app
@@ -116,10 +111,3 @@ def get_celery_app():
     return _celery_app
 
 app = get_celery_app()
-
-# Register tasks on module import
-try:
-    from backend.worker.celery_tasks import get_registered_tasks
-    get_registered_tasks()
-except Exception:
-    pass
