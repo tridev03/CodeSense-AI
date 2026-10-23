@@ -19,16 +19,10 @@ import os
 
 # ── Set test environment variables BEFORE importing anything from the app ──
 # This ensures pydantic-settings picks up these values on first import.
-os.environ.setdefault("ENVIRONMENT", "testing")
-os.environ.setdefault("GIT_PYTHON_REFRESH", "quiet")
-os.environ.setdefault(
-    "DATABASE_URL",
-    "postgresql://test:test@localhost:5432/ai_knowledge_agent_test",
-)
-os.environ.setdefault(
-    "SECRET_KEY",
-    "testing-secret-key-at-least-32-characters-long-for-testing",
-)
+os.environ["ENVIRONMENT"] = "testing"
+os.environ["GIT_PYTHON_REFRESH"] = "0"
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["SECRET_KEY"] = "testing-secret-key-at-least-32-characters-long-for-testing"
 
 # ── Application imports (after env vars are set) ───────────────────────────
 from typing import AsyncGenerator

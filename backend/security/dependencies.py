@@ -29,7 +29,6 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.dependencies import get_db
 from backend.config.settings import settings
 from backend.security.auth import TokenVerificationError, decode_access_token
 
