@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.agents.graph import get_agent
 from backend.agents.state import make_initial_state
-from backend.api.dependencies import get_db
-from backend.database import crud
+from backend.api.dependencies import get_valid_repository
+from backend.database.models import Repository
 from backend.schemas.agent import AgentQueryRequest, AgentQueryResponse, AgentToolCallLog
 
 logger = logging.getLogger(__name__)
@@ -39,23 +39,16 @@ router = APIRouter(tags=["agent"])
 async def agent_query(
     repository_id: uuid.UUID,
     request: AgentQueryRequest,
-    db: AsyncSession = Depends(get_db),
+    repo: Repository = Depends(get_valid_repository),
 ) -> AgentQueryResponse:
     """
     Agentic Q&A endpoint.
 
     Raises:
         404 — if the repository does not exist.
+        403 — if user lacks tenant access.
         500 — if the agent raises an unexpected error.
     """
-    # Validate repository exists
-    repo = await crud.get_repository(db, repository_id)
-    if repo is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Repository {repository_id} not found.",
-        )
-
     logger.info(
         "Agent query | repo=%s | query=%r | top_k=%d | max_reflections=%d",
         repository_id,

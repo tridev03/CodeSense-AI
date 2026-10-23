@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import uuid
 from typing import Any, Dict, List
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, Query
 
-from backend.api.dependencies import get_db
-from backend.database import crud
+from backend.api.dependencies import get_valid_repository
+from backend.database.models import Repository
 from backend.ingestion.git_extractor import get_stored_commits
 from backend.retrieval.hybrid import HybridRetriever
 from backend.schemas.git import (
@@ -29,15 +28,6 @@ from backend.services.repository_service import RepositoryNotFoundError
 router = APIRouter(prefix="/repositories", tags=["git"])
 
 
-async def _ensure_repository_exists(db: AsyncSession, repository_id: uuid.UUID) -> None:
-    repo = await crud.get_repository(db, repository_id)
-    if repo is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Repository with id={repository_id} not found.",
-        )
-
-
 @router.get(
     "/{repository_id}/git/commits",
     response_model=GitCommitsResponse,
@@ -47,9 +37,8 @@ async def _ensure_repository_exists(db: AsyncSession, repository_id: uuid.UUID) 
 async def list_commits(
     repository_id: uuid.UUID,
     limit: int = Query(default=50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db),
+    repo: Repository = Depends(get_valid_repository),
 ) -> GitCommitsResponse:
-    await _ensure_repository_exists(db, repository_id)
     commits = get_stored_commits(str(repository_id))
     items = [
         GitCommitItem(
@@ -80,10 +69,8 @@ async def list_commits(
 async def search_git_history(
     repository_id: uuid.UUID,
     payload: GitSearchRequest,
-    db: AsyncSession = Depends(get_db),
+    repo: Repository = Depends(get_valid_repository),
 ) -> GitSearchResponse:
-    await _ensure_repository_exists(db, repository_id)
-
     retriever = HybridRetriever()
 
     filters: Dict[str, Any] = {"content_type": "git_history"}
@@ -135,10 +122,8 @@ async def search_git_history(
 async def get_file_history(
     repository_id: uuid.UUID,
     payload: GitFileHistoryRequest,
-    db: AsyncSession = Depends(get_db),
+    repo: Repository = Depends(get_valid_repository),
 ) -> GitFileHistoryResponse:
-    await _ensure_repository_exists(db, repository_id)
-
     commits = get_stored_commits(str(repository_id))
     normalized_target = payload.file_path.replace("\\", "/").lower()
 

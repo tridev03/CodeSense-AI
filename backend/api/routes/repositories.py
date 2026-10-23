@@ -19,7 +19,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.dependencies import get_db
+from backend.api.dependencies import get_db, get_valid_repository
+from backend.database.models import Repository
 from backend.schemas.repository import (
     IndexingJobResponse,
     IndexTriggerResponse,
@@ -27,7 +28,7 @@ from backend.schemas.repository import (
     RepositoryListResponse,
     RepositoryResponse,
 )
-from backend.security.dependencies import CurrentUser, get_current_user, require_repo_owner
+from backend.security.dependencies import CurrentUser, get_current_user
 from backend.services.repository_service import (
     RepositoryAlreadyExistsError,
     RepositoryNotFoundError,
@@ -116,18 +117,9 @@ async def list_repositories(
     summary="Get a repository by ID",
 )
 async def get_repository(
-    repository_id: uuid.UUID,
-    current_user: CurrentUser = Depends(get_current_user),
-    svc: RepositoryService = Depends(_service),
-    db: AsyncSession = Depends(get_db),
+    repo: Repository = Depends(get_valid_repository),
 ) -> RepositoryResponse:
-    try:
-        # Verify ownership before exposing the resource (SEC-02)
-        await require_repo_owner(repository_id, current_user, db)
-        repo = await svc.get_repository(repository_id)
-        return RepositoryResponse.model_validate(repo)
-    except RepositoryNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    return RepositoryResponse.model_validate(repo)
 
 
 # ─── DELETE /repositories/{id} ────────────────────────────────────────────────
@@ -140,16 +132,10 @@ async def get_repository(
     description="Deletes the repository record and all associated indexing jobs.",
 )
 async def delete_repository(
-    repository_id: uuid.UUID,
-    current_user: CurrentUser = Depends(get_current_user),
+    repo: Repository = Depends(get_valid_repository),
     svc: RepositoryService = Depends(_service),
-    db: AsyncSession = Depends(get_db),
 ) -> None:
-    try:
-        await require_repo_owner(repository_id, current_user, db)
-        await svc.delete_repository(repository_id)
-    except RepositoryNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    await svc.delete_repository(repo.id)
 
 
 # ─── POST /repositories/{id}/index ────────────────────────────────────────────
@@ -167,40 +153,34 @@ async def delete_repository(
     ),
 )
 async def trigger_indexing(
-    repository_id: uuid.UUID,
-    current_user: CurrentUser = Depends(get_current_user),
+    repo: Repository = Depends(get_valid_repository),
     svc: RepositoryService = Depends(_service),
-    db: AsyncSession = Depends(get_db),
 ) -> IndexTriggerResponse:
+    job = await svc.trigger_indexing(repo.id)
+
+    # Enqueue the background indexing pipeline task
     try:
-        await require_repo_owner(repository_id, current_user, db)
-        job = await svc.trigger_indexing(repository_id)
-
-        # Enqueue the background indexing pipeline task
-        try:
-            from backend.worker.queue_adapter import get_task_queue
-            task_queue = get_task_queue()
-            await task_queue.submit_indexing_job(str(repository_id))
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).warning(
-                "Could not submit indexing to task queue, falling back to direct worker: %s", exc
-            )
-            from backend.worker.tasks import get_task_worker
-            from backend.database.connection import get_db_context
-            async def _bg_index():
-                async with get_db_context() as db:
-                    bg_svc = RepositoryService(db)
-                    await bg_svc.execute_indexing(repository_id, job.id)
-            get_task_worker().submit("index_repository", _bg_index)
-
-        return IndexTriggerResponse(
-            job_id=job.id,
-            repository_id=repository_id,
-            message="Indexing job queued and started.",
+        from backend.worker.queue_adapter import get_task_queue
+        task_queue = get_task_queue()
+        await task_queue.submit_indexing_job(str(repo.id))
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Could not submit indexing to task queue, falling back to direct worker: %s", exc
         )
-    except RepositoryNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        from backend.worker.tasks import get_task_worker
+        from backend.database.connection import get_db_context
+        async def _bg_index():
+            async with get_db_context() as db:
+                bg_svc = RepositoryService(db)
+                await bg_svc.execute_indexing(repo.id, job.id)
+        get_task_worker().submit("index_repository", _bg_index)
+
+    return IndexTriggerResponse(
+        job_id=job.id,
+        repository_id=repo.id,
+        message="Indexing job queued and started.",
+    )
 
 
 # ─── GET /repositories/{id}/status ────────────────────────────────────────────
@@ -216,19 +196,13 @@ async def trigger_indexing(
     ),
 )
 async def get_indexing_status(
-    repository_id: uuid.UUID,
-    current_user: CurrentUser = Depends(get_current_user),
+    repo: Repository = Depends(get_valid_repository),
     svc: RepositoryService = Depends(_service),
-    db: AsyncSession = Depends(get_db),
 ) -> Optional[IndexingJobResponse]:
-    try:
-        await require_repo_owner(repository_id, current_user, db)
-        job = await svc.get_indexing_status(repository_id)
-        if job is None:
-            return None
-        return IndexingJobResponse.model_validate(job)
-    except RepositoryNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    job = await svc.get_indexing_status(repo.id)
+    if job is None:
+        return None
+    return IndexingJobResponse.model_validate(job)
 
 
 # ─── GET /repositories/{id}/status/stream ─────────────────────────────────────
@@ -240,18 +214,14 @@ async def get_indexing_status(
     description="Streams real-time progress updates for the repository's indexing job using SSE.",
 )
 async def stream_indexing_status(
-    repository_id: uuid.UUID,
-    current_user: CurrentUser = Depends(get_current_user),
+    repo: Repository = Depends(get_valid_repository),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    # Ownership check before opening the stream
-    await require_repo_owner(repository_id, current_user, db)
-
     async def event_generator() -> AsyncGenerator[str, None]:
         svc = RepositoryService(db)
         while True:
             try:
-                job = await svc.get_indexing_status(repository_id)
+                job = await svc.get_indexing_status(repo.id)
                 if job is None:
                     yield "data: null\n\n"
                     break

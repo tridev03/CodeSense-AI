@@ -10,7 +10,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.dependencies import get_db
+from backend.api.dependencies import get_db, get_valid_repository
+from backend.database.models import Repository
 from backend.retrieval.eval_retrieval import EvalQuery, RetrievalAblationReport
 from backend.schemas.rag import AblationRequest, SearchRequest, SearchResponse
 from backend.services.rag_service import RAGService
@@ -33,12 +34,10 @@ def _rag_service(db: AsyncSession = Depends(get_db)) -> RAGService:
 async def search_repository(
     repository_id: uuid.UUID,
     payload: SearchRequest,
+    repo: Repository = Depends(get_valid_repository),
     rag_svc: RAGService = Depends(_rag_service),
 ) -> SearchResponse:
-    try:
-        return await rag_svc.search(repository_id, payload)
-    except RepositoryNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    return await rag_svc.search(repo.id, payload)
 
 
 @router.post(
@@ -51,17 +50,15 @@ async def search_repository(
 async def evaluate_retrieval_endpoint(
     repository_id: uuid.UUID,
     payload: AblationRequest,
+    repo: Repository = Depends(get_valid_repository),
     rag_svc: RAGService = Depends(_rag_service),
 ) -> RetrievalAblationReport:
-    try:
-        eval_queries = [
-            EvalQuery(
-                query=q.query,
-                expected_chunk_ids=q.expected_chunk_ids,
-                expected_files=q.expected_files,
-            )
-            for q in payload.queries
-        ]
-        return await rag_svc.evaluate_retrieval(repository_id, eval_queries, k=payload.k)
-    except RepositoryNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    eval_queries = [
+        EvalQuery(
+            query=q.query,
+            expected_chunk_ids=q.expected_chunk_ids,
+            expected_files=q.expected_files,
+        )
+        for q in payload.queries
+    ]
+    return await rag_svc.evaluate_retrieval(repo.id, eval_queries, k=payload.k)
