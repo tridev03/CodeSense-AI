@@ -95,6 +95,7 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
+  const [reconnectAttempt, setReconnectAttempt] = useState<number>(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -298,7 +299,7 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
         setMessages((prev) => [...prev, assistantMsg]);
         if (res.citations.length > 0) setSelectedCitation(res.citations[0]);
       } else if (effectiveRepoId) {
-        // Chat mode with SSE streaming
+        // Chat mode with SSE streaming & exponential backoff reconnection
         const payload: ChatRequest = {
           query: finalQuery,
           top_k: 10,
@@ -308,94 +309,110 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
         };
 
         const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+        const assistantId = (Date.now() + 1).toString();
+        const MAX_RETRIES = 3;
+        const RETRY_DELAYS = [500, 1000, 2000];
+
+        setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: "" }]);
+        setIsStreaming(true);
+
         let streamSucceeded = false;
 
-        try {
-          const response = await fetch(`${BASE_URL}/repositories/${effectiveRepoId}/chat/stream`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify(payload),
-          });
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+          if (attempt > 0) {
+            setReconnectAttempt(attempt);
+            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt - 1]));
+          }
 
-          if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+          try {
+            const response = await fetch(`${BASE_URL}/repositories/${effectiveRepoId}/chat/stream`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+              body: JSON.stringify(payload),
+            });
 
-          const assistantId = (Date.now() + 1).toString();
-          setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: "" }]);
-          setIsStreaming(true);
+            if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
 
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-          let finalCitations: Citation[] = [];
+            setReconnectAttempt(0);
 
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let finalCitations: Citation[] = [];
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
 
-            for (const line of lines) {
-              if (!line.startsWith("data:")) continue;
-              const jsonStr = line.slice(5).trim();
-              if (!jsonStr) continue;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() ?? "";
 
-              let chunk: { token?: string; citations?: Citation[]; done?: boolean; error?: string };
-              try {
-                chunk = JSON.parse(jsonStr);
-              } catch {
-                continue;
-              }
+              for (const line of lines) {
+                if (!line.startsWith("data:")) continue;
+                const jsonStr = line.slice(5).trim();
+                if (!jsonStr) continue;
 
-              if (chunk.error) {
-                toast.error(chunk.error);
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId ? { ...m, content: `⚠️ **Streaming error**: ${chunk.error}` } : m
-                  )
-                );
-                break;
-              }
+                let chunk: { token?: string; citations?: Citation[]; done?: boolean; error?: string };
+                try {
+                  chunk = JSON.parse(jsonStr);
+                } catch {
+                  continue;
+                }
 
-              if (chunk.token !== undefined && chunk.token !== null) {
-                setMessages((prev) =>
-                  prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + chunk.token } : m))
-                );
-              }
+                if (chunk.error) {
+                  throw new Error(chunk.error);
+                }
 
-              if (chunk.done) {
-                finalCitations = chunk.citations ?? [];
-                setMessages((prev) =>
-                  prev.map((m) => (m.id === assistantId ? { ...m, citations: finalCitations } : m))
-                );
-                if (finalCitations.length > 0) setSelectedCitation(finalCitations[0]);
+                if (chunk.token !== undefined && chunk.token !== null) {
+                  setMessages((prev) =>
+                    prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + chunk.token } : m))
+                  );
+                }
+
+                if (chunk.done) {
+                  finalCitations = chunk.citations ?? [];
+                  setMessages((prev) =>
+                    prev.map((m) => (m.id === assistantId ? { ...m, citations: finalCitations } : m))
+                  );
+                  if (finalCitations.length > 0) setSelectedCitation(finalCitations[0]);
+                }
               }
             }
+
+            streamSucceeded = true;
+            break; // Stream succeeded, break retry loop!
+          } catch (streamErr) {
+            console.warn(`SSE stream attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`, streamErr);
+            if (attempt === MAX_RETRIES) {
+              break;
+            }
           }
-          streamSucceeded = true;
-        } catch {
-          // Stream failed, fall back to non-streaming endpoint
-        } finally {
-          setIsStreaming(false);
         }
 
+        setIsStreaming(false);
+        setReconnectAttempt(0);
+
         if (!streamSucceeded) {
+          // Graceful fallback to non-streaming /chat endpoint
           const res = await chatApi.send(effectiveRepoId, payload);
-          const assistantMsg: Message = {
-            id: (Date.now() + 1).toString(),
-            role: "assistant",
-            content: res.answer,
-            citations: res.citations,
-            model: res.model,
-            tokensUsed: res.tokens_used,
-            isAgent: false,
-          };
-          setMessages((prev) => [...prev, assistantMsg]);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? {
+                    ...m,
+                    content: res.answer,
+                    citations: res.citations,
+                    model: res.model,
+                    tokensUsed: res.tokens_used,
+                  }
+                : m
+            )
+          );
           if (res.citations.length > 0) setSelectedCitation(res.citations[0]);
         }
       }
@@ -569,6 +586,13 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
                           />
                         )}
                       </div>
+
+                      {reconnectAttempt > 0 && isStreaming && m === messages[messages.length - 1] && (
+                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-400 mt-2 font-mono">
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                          <span>Reconnecting stream (attempt {reconnectAttempt}/3)...</span>
+                        </div>
+                      )}
 
                       {m.role === "assistant" && (
                         <div className="flex items-center justify-between pt-3 mt-3 border-t border-[#242424] text-[10px] text-[#71717A]">
@@ -802,3 +826,4 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
     </div>
   );
 }
+
