@@ -38,10 +38,33 @@ export function ConnectRepoDialog({ onRepoCreated, trigger }: ConnectRepoDialogP
   const [description, setDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const validateUrlOrPath = (inputUrl: string): string | null => {
+    const trimmed = inputUrl.trim();
+    if (trimmed.startsWith("http://")) {
+      return "Insecure HTTP is not allowed. Please use HTTPS (https://github.com/...)";
+    }
+    if (trimmed.startsWith("https://")) {
+      const githubRegex = /^https:\/\/(www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(\.git)?\/?$/;
+      if (!githubRegex.test(trimmed)) {
+        return "Please enter a valid GitHub repository URL (e.g., https://github.com/owner/repo)";
+      }
+      if (/localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|169\.254\./i.test(trimmed)) {
+        return "Internal and private network destinations are blocked for security.";
+      }
+    }
+    return null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !url.trim()) {
       toast.error("Repository name and URL/path are required");
+      return;
+    }
+
+    const validationError = validateUrlOrPath(url);
+    if (validationError) {
+      toast.error(validationError);
       return;
     }
 

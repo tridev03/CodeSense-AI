@@ -242,3 +242,77 @@ async def test_e2e_failure_handling(client: AsyncClient, test_db, sample_codebas
     # 7. Check nonexistent background task -> 404
     task_res = await client.get(f"/api/v1/tasks/{fake_id}", headers=headers_a)
     assert task_res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_e2e_reindexing_and_stale_chunk_removal(
+    client: AsyncClient, test_db, tmp_path: Path
+):
+    """
+    Verify that re-indexing a modified repository cleanly purges stale chunks
+    of deleted files and avoids duplicate chunks for existing files.
+    """
+    repo_dir = tmp_path / "dynamic_repo"
+    repo_dir.mkdir()
+
+    f1 = repo_dir / "service.py"
+    f1.write_text("def run_service_v1():\n    return 'v1_alpha'\n")
+
+    f2 = repo_dir / "obsolete.py"
+    f2.write_text("def obsolete_feature():\n    return 'deprecated_feature_payload'\n")
+
+    user_id = str(uuid.uuid4())
+    token = create_access_token(subject=user_id, email="maintainer@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Connect
+    res = await client.post(
+        "/api/v1/repositories",
+        json={"name": "dynamic-repo", "url": str(repo_dir), "source_type": "local"},
+        headers=headers,
+    )
+    assert res.status_code == 201
+    repo_id = res.json()["id"]
+
+    # 2. Initial Index
+    repo_service = RepositoryService(test_db)
+    result_v1 = await repo_service.execute_indexing(uuid.UUID(repo_id))
+    assert result_v1.files_processed == 2
+
+    from backend.retrieval import VectorStoreService, _collection_name
+    vec_svc = VectorStoreService()
+    col_name = _collection_name(repo_id)
+    pts_v1 = vec_svc._mock_store.get(col_name, [])
+    assert any("obsolete.py" in p["payload"].get("file_path", "") for p in pts_v1)
+
+    # 3. Modify repository on disk: delete obsolete.py, add new_feature.py
+    f2.unlink()
+    f3 = repo_dir / "feature.py"
+    f3.write_text("def modern_feature():\n    return 'super_modern_new_payload'\n")
+    f1.write_text("def run_service_v2():\n    return 'v2_updated_service'\n")
+
+    # 4. Re-index repository
+    result_v2 = await repo_service.execute_indexing(uuid.UUID(repo_id))
+    assert result_v2.files_processed == 2
+
+    # 5. Verify vector store state
+    pts_v2 = vec_svc._mock_store.get(col_name, [])
+    indexed_files = {p["payload"].get("file_path", "") for p in pts_v2}
+
+    # Must NOT have obsolete.py
+    assert not any("obsolete.py" in f for f in indexed_files), "Stale chunk of obsolete.py was not removed!"
+    # Must have modern feature and service
+    assert any("feature.py" in f for f in indexed_files)
+    assert any("service.py" in f for f in indexed_files)
+
+    # 6. Verify search through API
+    search_res = await client.post(
+        f"/api/v1/repositories/{repo_id}/search",
+        json={"query": "deprecated_feature_payload", "top_k": 5},
+        headers=headers,
+    )
+    assert search_res.status_code == 200
+    hits = search_res.json()["results"]
+    assert not any("deprecated_feature_payload" in h.get("content", "") for h in hits)
+
+

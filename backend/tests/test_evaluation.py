@@ -244,3 +244,12 @@ async def test_evaluate_generation_endpoint_404(client: AsyncClient):
         json={"num_questions": 2},
     )
     assert response.status_code == 404
+
+
+def test_load_curated_benchmark_dataset():
+    """Verify loading curated evaluation benchmark queries."""
+    from backend.retrieval.eval_retrieval import load_curated_benchmark_dataset
+    queries = load_curated_benchmark_dataset()
+    assert len(queries) >= 5
+    assert all(q.query and (q.expected_files or q.expected_chunk_ids) for q in queries)
+

@@ -353,6 +353,8 @@ class RepositoryService:
                 await self._db.commit()
 
                 try:
+                    await asyncio.to_thread(vec_store.delete_collection, str(repository_id))
+                    await asyncio.to_thread(vec_store.ensure_collection, str(repository_id))
                     await asyncio.to_thread(vec_store.upsert_chunks, str(repository_id), all_chunks, embeddings)
                 except Exception as ve:
                     raise RuntimeError(f"[VECTOR_STORE_FAILED] Failed to persist vectors to Qdrant: {ve}") from ve
@@ -360,7 +362,9 @@ class RepositoryService:
                 # Build & persist BM25 keyword index for hybrid retrieval
                 try:
                     from backend.retrieval.hybrid import get_bm25_retriever
-                    await asyncio.to_thread(get_bm25_retriever().build_index, str(repository_id), all_chunks)
+                    bm25_retriever = get_bm25_retriever()
+                    await asyncio.to_thread(bm25_retriever.delete_index, str(repository_id))
+                    await asyncio.to_thread(bm25_retriever.build_index, str(repository_id), all_chunks)
                 except Exception as be:
                     raise RuntimeError(f"[BM25_INDEX_FAILED] Failed to build lexical BM25 index: {be}") from be
 
@@ -384,7 +388,7 @@ class RepositoryService:
                 repository_id,
                 status=RepositoryStatus.INDEXED,
                 file_count=result.files_processed,
-                chunk_count=result.total_chunks,
+                chunk_count=len(all_chunks),
                 commit_hash=commit_hash,
                 branch=actual_branch,
             )

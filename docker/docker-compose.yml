@@ -47,7 +47,7 @@ services:
       - ../.env
     environment:
       - ENVIRONMENT=production
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_knowledge_agent
+      - DATABASE_URL=${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-ai_knowledge_agent}}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - EMBEDDING_DEVICE=cuda
@@ -107,7 +107,7 @@ services:
       - ../.env
     environment:
       - ENVIRONMENT=production
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_knowledge_agent
+      - DATABASE_URL=${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-ai_knowledge_agent}}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - EMBEDDING_DEVICE=cuda
@@ -148,9 +148,9 @@ services:
     container_name: ai_knowledge_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: ai_knowledge_agent
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_knowledge_agent}
     ports:
       - "127.0.0.1:5432:5432"  # Bound to loopback to prevent external exposure (DEP-04)
     volumes:

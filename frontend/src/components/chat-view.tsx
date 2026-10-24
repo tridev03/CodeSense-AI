@@ -36,6 +36,8 @@ import {
   Paperclip,
   Plus,
   X,
+  Square,
+  ArrowDown,
 } from "lucide-react";
 import { CitationInspector } from "@/components/citation-inspector";
 import { Button } from "@/components/ui/button";
@@ -98,8 +100,28 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
   const [reconnectAttempt, setReconnectAttempt] = useState<number>(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const [showScrollBottomButton, setShowScrollBottomButton] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+
+  const handleStopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsStreaming(false);
+    setIsLoading(false);
+    setReconnectAttempt(0);
+    toast.info("Generation stopped");
+  }, []);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    setShowScrollBottomButton(!isNearBottom);
+  };
 
   // ── Load Repository List & Active Repo Details ──────────────────────────────
   useEffect(() => {
@@ -313,16 +335,23 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
         const MAX_RETRIES = 3;
         const RETRY_DELAYS = [500, 1000, 2000];
 
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: "" }]);
         setIsStreaming(true);
 
         let streamSucceeded = false;
 
         for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+          if (controller.signal.aborted) break;
+
           if (attempt > 0) {
             setReconnectAttempt(attempt);
             await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt - 1]));
           }
+
+          if (controller.signal.aborted) break;
 
           try {
             const response = await fetch(`${BASE_URL}/repositories/${effectiveRepoId}/chat/stream`, {
@@ -332,6 +361,7 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
               },
               body: JSON.stringify(payload),
+              signal: controller.signal,
             });
 
             if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
@@ -345,6 +375,11 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
 
              
             while (true) {
+              if (controller.signal.aborted) {
+                reader.cancel();
+                break;
+              }
+
               const { done, value } = await reader.read();
               if (done) break;
 
@@ -384,9 +419,13 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
               }
             }
 
-            streamSucceeded = true;
-            break; // Stream succeeded, break retry loop!
+            streamSucceeded = !controller.signal.aborted;
+            break; // Stream succeeded or completed, break retry loop!
           } catch (streamErr) {
+            if (controller.signal.aborted || (streamErr as Error)?.name === "AbortError") {
+              console.info("Stream generation aborted by user.");
+              break;
+            }
             console.warn(`SSE stream attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`, streamErr);
             if (attempt === MAX_RETRIES) {
               break;
@@ -396,9 +435,10 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
 
         setIsStreaming(false);
         setReconnectAttempt(0);
+        abortControllerRef.current = null;
 
-        if (!streamSucceeded) {
-          // Graceful fallback to non-streaming /chat endpoint
+        if (!streamSucceeded && !controller.signal.aborted) {
+          // Graceful fallback to non-streaming /chat endpoint only if not cancelled by user
           const res = await chatApi.send(effectiveRepoId, payload);
           setMessages((prev) =>
             prev.map((m) =>
@@ -531,9 +571,9 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
       {/* Main Split Layout */}
       <div className="flex-1 flex gap-4 min-h-0">
         {/* Messages and Input column */}
-        <div className="flex-1 flex flex-col min-h-0 bg-[#0D0D0D] border border-[#242424] rounded-2xl overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-0 bg-[#0D0D0D] border border-[#242424] rounded-2xl overflow-hidden relative">
           {/* Messages scroll area */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+          <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             {messages.length === 0 ? (
               <div className="h-full flex flex-col justify-center items-center text-center p-6 max-w-md mx-auto">
                 <div className="w-12 h-12 rounded-2xl bg-[#141414] border border-[#303030] flex items-center justify-center text-[#D99A45] mb-4">
@@ -656,6 +696,17 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
               </div>
             )}
             <div ref={messagesEndRef} />
+
+            {showScrollBottomButton && (
+              <button
+                type="button"
+                onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })}
+                className="absolute bottom-24 right-6 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#18181B]/95 hover:bg-[#27272A] text-xs text-[#E4E4E7] border border-[#3F3F46] shadow-xl backdrop-blur transition-all animate-in fade-in cursor-pointer"
+              >
+                <ArrowDown className="w-3.5 h-3.5 text-[#D99A45]" />
+                <span>Jump to latest</span>
+              </button>
+            )}
           </div>
 
           {/* Composer */}
@@ -728,13 +779,25 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
                 }
                 className="min-h-[44px] max-h-32 bg-[#141414] border-[#242424] text-[#F5F5F5] placeholder:text-[#52525B] focus:border-[#D99A45] focus:ring-[#D99A45]/20 rounded-xl resize-none py-2.5 px-3 text-xs sm:text-sm"
               />
-              <Button
-                type="submit"
-                disabled={isLoading || (!input.trim() && attachedFiles.length === 0)}
-                className="bg-[#D99A45] hover:bg-[#D99A45]/90 text-black h-11 w-11 rounded-xl shrink-0 p-0"
-              >
-                {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              </Button>
+              {isStreaming ? (
+                <Button
+                  type="button"
+                  onClick={handleStopGeneration}
+                  className="bg-[#DC2626] hover:bg-[#B91C1C] text-white h-11 px-3.5 rounded-xl shrink-0 gap-1.5 text-xs font-medium transition-all shadow-md shadow-red-500/20"
+                  title="Stop generating"
+                >
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                  <span className="hidden sm:inline">Stop</span>
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  disabled={isLoading || (!input.trim() && attachedFiles.length === 0)}
+                  className="bg-[#D99A45] hover:bg-[#D99A45]/90 text-black h-11 w-11 rounded-xl shrink-0 p-0"
+                >
+                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                </Button>
+              )}
             </form>
           </div>
         </div>
