@@ -260,6 +260,8 @@ def scan_repository(
     repo_root: str,
     *,
     max_file_size_mb: float = 5.0,
+    max_file_count: int = 2000,
+    max_total_size_mb: float = 250.0,
     extra_ignore_dirs: Optional[Set[str]] = None,
 ) -> List[DiscoveredFile]:
     """
@@ -267,7 +269,9 @@ def scan_repository(
 
     Args:
         repo_root: Absolute path to the repository root directory.
-        max_file_size_mb: Maximum file size in MB. Files larger are skipped.
+        max_file_size_mb: Maximum single file size in MB. Files larger are skipped.
+        max_file_count: Maximum number of files to index before aborting.
+        max_total_size_mb: Maximum cumulative repository size in MB.
         extra_ignore_dirs: Additional directory names to skip.
 
     Returns:
@@ -278,9 +282,11 @@ def scan_repository(
         raise FileNotFoundError(f"Repository root does not exist: {root}")
 
     max_size_bytes = int(max_file_size_mb * 1024 * 1024)
+    max_total_bytes = int(max_total_size_mb * 1024 * 1024)
     ignore_dirs = IGNORED_DIRECTORIES | (extra_ignore_dirs or set())
     discovered: List[DiscoveredFile] = []
     skipped_count = 0
+    total_scanned_bytes = 0
 
     for dirpath, dirnames, filenames in os.walk(str(root)):
         # Prune ignored directories IN-PLACE so os.walk doesn't descend
@@ -316,6 +322,13 @@ def scan_repository(
                 skipped_count += 1
                 continue
 
+            # Check total repository size limit
+            total_scanned_bytes += size
+            if total_scanned_bytes > max_total_bytes:
+                raise ValueError(
+                    f"Repository exceeds maximum allowed total size of {max_total_size_mb} MB."
+                )
+
             # Classify
             content_type, language = _classify_file(filename, extension)
             if content_type == ContentType.UNKNOWN:
@@ -338,6 +351,12 @@ def scan_repository(
                     encoding=encoding,
                 )
             )
+
+            # Check file count limit
+            if len(discovered) > max_file_count:
+                raise ValueError(
+                    f"Repository exceeds maximum allowed file count of {max_file_count} files."
+                )
 
     discovered.sort(key=lambda f: f.path)
 

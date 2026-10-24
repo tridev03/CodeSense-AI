@@ -154,15 +154,17 @@ async def delete_repository(
 )
 async def trigger_indexing(
     repo: Repository = Depends(get_valid_repository),
+    current_user: CurrentUser = Depends(get_current_user),
     svc: RepositoryService = Depends(_service),
 ) -> IndexTriggerResponse:
     job = await svc.trigger_indexing(repo.id)
 
     # Enqueue the background indexing pipeline task
+    owner_str = str(current_user.user_id) if current_user else None
     try:
         from backend.worker.queue_adapter import get_task_queue
         task_queue = get_task_queue()
-        await task_queue.submit_indexing_job(str(repo.id))
+        await task_queue.submit_indexing_job(str(repo.id), owner_id=owner_str)
     except Exception as exc:
         import logging
         logging.getLogger(__name__).warning(
@@ -174,7 +176,12 @@ async def trigger_indexing(
             async with get_db_context() as db:
                 bg_svc = RepositoryService(db)
                 await bg_svc.execute_indexing(repo.id, job.id)
-        get_task_worker().submit("index_repository", _bg_index)
+        get_task_worker().submit(
+            "index_repository",
+            _bg_index,
+            metadata={"repository_id": str(repo.id), "owner_id": owner_str},
+            max_retries=3,
+        )
 
     return IndexTriggerResponse(
         job_id=job.id,

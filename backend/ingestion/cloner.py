@@ -50,18 +50,14 @@ class CloneResult:
 
 
 def _validate_github_url(url: str) -> None:
-    """Validate that the URL is a legitimate GitHub HTTPS URL."""
-    parsed = urlparse(url)
-    if parsed.scheme not in ("https", "http"):
-        raise ClonerError(f"Only HTTPS GitHub URLs are supported, got: {url}")
-    if "github.com" not in parsed.hostname:
-        raise ClonerError(f"Only GitHub repositories are supported, got: {url}")
-    # Must have at least /owner/repo
-    path_parts = [p for p in parsed.path.strip("/").split("/") if p]
-    if len(path_parts) < 2:
-        raise ClonerError(
-            f"GitHub URL must include owner and repo: {url}"
-        )
+    """Validate that the URL is a legitimate GitHub HTTPS URL and protected from SSRF."""
+    from backend.security.validators import GitUrlValidator, GitUrlValidationError
+
+    validator = GitUrlValidator()
+    try:
+        validator.validate_and_normalize(url)
+    except GitUrlValidationError as exc:
+        raise ClonerError(f"Security validation failed for repository URL: {exc}") from exc
 
 
 def _validate_local_path(path: str) -> str:

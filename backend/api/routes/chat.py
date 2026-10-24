@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.dependencies import get_db, get_valid_repository
 from backend.database.models import Repository
 from backend.schemas.rag import ChatRequest, ChatResponse, ChatStreamChunk
+from backend.security.dependencies import CurrentUser, get_current_user
 from backend.services.rag_service import RAGService
 from backend.services.repository_service import RepositoryNotFoundError
 
@@ -126,7 +127,10 @@ class DirectChatRequest(BaseModel):
         "using the files as context. No repository connection required."
     ),
 )
-async def chat_direct_stream(payload: DirectChatRequest) -> StreamingResponse:
+async def chat_direct_stream(
+    payload: DirectChatRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> StreamingResponse:
     """
     SSE streaming endpoint for direct file-based chat.
     Works without any repository — files are passed as inline context.

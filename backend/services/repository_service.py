@@ -276,14 +276,29 @@ class RepositoryService:
 
         try:
             is_local = (repo.source_type == RepositorySourceType.LOCAL)
-            # Offload heavy file scanning, tree-sitter AST parsing, and chunking to threadpool (REL-03)
-            result = await asyncio.to_thread(
-                run_ingestion,
-                repo.url,
-                is_local=is_local,
-                branch=repo.branch,
-                repository_id=str(repository_id),
+            # Step 1: Clone / Scan / Parse / Chunk
+            await crud.update_indexing_job(
+                self._db,
+                job_id,
+                progress=10.0,
+                current_step="Cloning and analyzing repository structure",
             )
+            await self._db.commit()
+
+            try:
+                result = await asyncio.to_thread(
+                    run_ingestion,
+                    repo.url,
+                    is_local=is_local,
+                    branch=repo.branch,
+                    repository_id=str(repository_id),
+                )
+            except ClonerError as ce:
+                raise RuntimeError(f"[CLONING_FAILED] {ce}") from ce
+            except ValueError as ve:
+                raise RuntimeError(f"[SCANNING_FAILED] {ve}") from ve
+            except TimeoutError as te:
+                raise RuntimeError(f"[TIMEOUT_EXCEEDED] {te}") from te
 
             commit_hash = result.clone_result.commit_hash if result.clone_result else None
 
@@ -315,8 +330,8 @@ class RepositoryService:
                 await crud.update_indexing_job(
                     self._db,
                     job_id,
-                    progress=80.0,
-                    current_step="Embedding and indexing vectors",
+                    progress=60.0,
+                    current_step="Generating semantic embeddings",
                 )
                 await self._db.commit()
 
@@ -324,13 +339,30 @@ class RepositoryService:
                 vec_store = VectorStoreService()
 
                 texts = [c.content for c in all_chunks]
-                # Offload PyTorch/transformer forward pass embedding compute to threadpool (REL-03)
-                embeddings = await asyncio.to_thread(emb_svc.embed_texts, texts)
-                await asyncio.to_thread(vec_store.upsert_chunks, str(repository_id), all_chunks, embeddings)
+                try:
+                    embeddings = await asyncio.to_thread(emb_svc.embed_texts, texts)
+                except Exception as ee:
+                    raise RuntimeError(f"[EMBEDDING_FAILED] Failed to compute text embeddings: {ee}") from ee
 
-                # Build & persist BM25 keyword index for hybrid retrieval on threadpool (REL-03)
-                from backend.retrieval.hybrid import get_bm25_retriever
-                await asyncio.to_thread(get_bm25_retriever().build_index, str(repository_id), all_chunks)
+                await crud.update_indexing_job(
+                    self._db,
+                    job_id,
+                    progress=85.0,
+                    current_step="Indexing vectors and BM25 lexicons",
+                )
+                await self._db.commit()
+
+                try:
+                    await asyncio.to_thread(vec_store.upsert_chunks, str(repository_id), all_chunks, embeddings)
+                except Exception as ve:
+                    raise RuntimeError(f"[VECTOR_STORE_FAILED] Failed to persist vectors to Qdrant: {ve}") from ve
+
+                # Build & persist BM25 keyword index for hybrid retrieval
+                try:
+                    from backend.retrieval.hybrid import get_bm25_retriever
+                    await asyncio.to_thread(get_bm25_retriever().build_index, str(repository_id), all_chunks)
+                except Exception as be:
+                    raise RuntimeError(f"[BM25_INDEX_FAILED] Failed to build lexical BM25 index: {be}") from be
 
             # Mark job as completed
             await crud.update_indexing_job(
@@ -361,6 +393,12 @@ class RepositoryService:
 
         except Exception as exc:
             logger.exception("Ingestion failed for repository %s", repository_id)
+            if 'result' in locals() and getattr(result, 'clone_result', None) and result.clone_result.is_cloned:
+                try:
+                    from backend.ingestion.cloner import cleanup_clone
+                    cleanup_clone(result.clone_result.local_path)
+                except Exception:
+                    pass
             await crud.update_indexing_job(
                 self._db,
                 job_id,
