@@ -42,10 +42,13 @@ def test_alembic_config_and_migrations():
     initial_rev = revisions[-1]
     assert initial_rev.revision == "001_initial_schema"
 
-    # Verify SQLAlchemy metadata has both core tables
+    # Verify SQLAlchemy metadata has both core tables and auth/ownership tables
     table_names = set(Base.metadata.tables.keys())
     assert "repositories" in table_names
     assert "indexing_jobs" in table_names
+    assert "users" in table_names
+    assert "user_repository_ownership" in table_names
+    assert revisions[0].revision == "002_add_users_and_ownership"
 
 
 # ─── 2. Request-ID Middleware Tests ──────────────────────────────────────────
@@ -98,6 +101,38 @@ def test_rate_limit_middleware_enforcement():
     assert r3.status_code == 429
     assert "Retry-After" in r3.headers
     assert r3.json()["max_requests"] == 2
+
+
+def test_rate_limit_trusted_proxy_handling():
+    """Verify that X-Forwarded-For is only honored when peer is a trusted proxy."""
+    test_app = FastAPI()
+    rl_middleware = RateLimitMiddleware(
+        test_app,
+        max_requests=1,
+        window_seconds=60,
+        enabled=True,
+    )
+    test_app.add_middleware(
+        RateLimitMiddleware,
+        max_requests=1,
+        window_seconds=60,
+        enabled=True,
+    )
+
+    @test_app.get("/ip-test")
+    def ip_endpoint():
+        return {"ok": True}
+
+    # TestClient connects as "testclient" which is not a trusted proxy by default
+    tc = TestClient(test_app)
+    # First request
+    res1 = tc.get("/ip-test", headers={"X-Forwarded-For": "203.0.113.195"})
+    assert res1.status_code == 200
+
+    # Second request with different spoofed IP: should still hit 429 because testclient peer IP is rate-limited!
+    res2 = tc.get("/ip-test", headers={"X-Forwarded-For": "198.51.100.44"})
+    assert res2.status_code == 429
+
 
 
 # ─── 4. Background Task Worker Tests ─────────────────────────────────────────

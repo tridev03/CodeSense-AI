@@ -41,11 +41,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._requests: DefaultDict[str, Deque[float]] = collections.defaultdict(collections.deque)
 
     def _get_client_ip(self, request: Request) -> str:
-        # Check X-Forwarded-For if behind reverse proxy / load balancer
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        return request.client.host if request.client else "unknown"
+        peer_ip = request.client.host if request.client else "unknown"
+        trusted_proxies = set(getattr(settings, "TRUSTED_PROXIES", ["127.0.0.1", "::1", "localhost"]))
+
+        # Only trust X-Forwarded-For if request directly arrived from a configured trusted proxy
+        if peer_ip in trusted_proxies:
+            forwarded = request.headers.get("X-Forwarded-For")
+            if forwarded:
+                return forwarded.split(",")[0].strip()
+        return peer_ip
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if not self.enabled:

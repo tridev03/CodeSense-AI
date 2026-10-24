@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     # ── API ────────────────────────────────────────────────────────────────────
     API_V1_PREFIX: str = "/api/v1"
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    TRUSTED_PROXIES: List[str] = ["127.0.0.1", "::1", "localhost"]
 
     # ── PostgreSQL ─────────────────────────────────────────────────────────────
     DATABASE_URL: str = Field(
