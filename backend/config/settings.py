@@ -99,6 +99,10 @@ class Settings(BaseSettings):
         default=None,
         description="Redis connection URL: redis://[:password@]host:port/db  (optional)",
     )
+    TASK_QUEUE_MODE: str = Field(
+        default="auto",
+        description="Task queue execution mode: 'auto' | 'local' | 'redis' / 'celery'",
+    )
     CELERY_CONCURRENCY: int = Field(
         default=2,
         ge=1,

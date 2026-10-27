@@ -206,6 +206,16 @@ class RepositoryService:
                 repository_id, exc,
             )
 
+        # Delete stored file hash manifest
+        try:
+            from backend.ingestion.hash_tracker import delete_repository_manifest
+            delete_repository_manifest(str(repository_id))
+        except Exception as exc:
+            logger.warning(
+                "Could not delete manifest for repo %s: %s",
+                repository_id, exc,
+            )
+
         logger.info(
             "Repository deleted", extra={"repository_id": str(repository_id)}
         )
@@ -338,26 +348,53 @@ class RepositoryService:
                 emb_svc = get_embedding_service()
                 vec_store = VectorStoreService()
 
-                texts = [c.content for c in all_chunks]
-                try:
-                    embeddings = await asyncio.to_thread(emb_svc.embed_texts, texts)
-                except Exception as ee:
-                    raise RuntimeError(f"[EMBEDDING_FAILED] Failed to compute text embeddings: {ee}") from ee
+                diff = getattr(result, "manifest_diff", None)
+                if diff is not None:
+                    # Incremental update:
+                    # 1. Purge stale chunks from deleted files
+                    for df in diff.deleted_files:
+                        await asyncio.to_thread(vec_store.delete_chunks_by_file, str(repository_id), df)
 
-                await crud.update_indexing_job(
-                    self._db,
-                    job_id,
-                    progress=85.0,
-                    current_step="Indexing vectors and BM25 lexicons",
-                )
-                await self._db.commit()
+                    # 2. Purge stale chunks from modified files before re-inserting new ones
+                    for mf in diff.modified_files:
+                        await asyncio.to_thread(vec_store.delete_chunks_by_file, str(repository_id), mf)
 
-                try:
+                    # 3. Only re-embed chunks belonging to modified or added files (and git chunks)
+                    changed_paths = diff.added_files | diff.modified_files
+                    chunks_to_embed = [
+                        c for c in all_chunks
+                        if c.file_path in changed_paths or c.content_type.value == "git_history"
+                    ]
+                else:
+                    # Initial indexing: wipe collection and embed all chunks
                     await asyncio.to_thread(vec_store.delete_collection, str(repository_id))
                     await asyncio.to_thread(vec_store.ensure_collection, str(repository_id))
-                    await asyncio.to_thread(vec_store.upsert_chunks, str(repository_id), all_chunks, embeddings)
-                except Exception as ve:
-                    raise RuntimeError(f"[VECTOR_STORE_FAILED] Failed to persist vectors to Qdrant: {ve}") from ve
+                    chunks_to_embed = all_chunks
+
+                if chunks_to_embed:
+                    texts = [c.content for c in chunks_to_embed]
+                    try:
+                        embeddings = await asyncio.to_thread(emb_svc.embed_texts, texts)
+                    except Exception as ee:
+                        raise RuntimeError(f"[EMBEDDING_FAILED] Failed to compute text embeddings: {ee}") from ee
+
+                    try:
+                        await asyncio.to_thread(vec_store.upsert_chunks, str(repository_id), chunks_to_embed, embeddings)
+                    except Exception as ve:
+                        raise RuntimeError(f"[VECTOR_STORE_FAILED] Failed to persist vectors to Qdrant: {ve}") from ve
+                    finally:
+                        # Free temporary batch arrays and release PyTorch cache
+                        del texts
+                        if "embeddings" in locals():
+                            del embeddings
+                        import gc
+                        gc.collect()
+                        try:
+                            import torch
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                        except Exception:
+                            pass
 
                 # Build & persist BM25 keyword index for hybrid retrieval
                 try:
@@ -367,6 +404,11 @@ class RepositoryService:
                     await asyncio.to_thread(bm25_retriever.build_index, str(repository_id), all_chunks)
                 except Exception as be:
                     raise RuntimeError(f"[BM25_INDEX_FAILED] Failed to build lexical BM25 index: {be}") from be
+
+                # Save file hash manifest for subsequent incremental runs
+                if getattr(result, "current_manifest", None):
+                    from backend.ingestion.hash_tracker import save_repository_manifest
+                    save_repository_manifest(str(repository_id), result.current_manifest)
 
             # Mark job as completed
             await crud.update_indexing_job(

@@ -45,6 +45,20 @@ class TestLocalTaskQueue:
         assert isinstance(queue, LocalTaskQueue)
         assert queue.mode == "local"
 
+    def test_get_task_queue_respects_task_queue_mode_local(self, monkeypatch):
+        """When TASK_QUEUE_MODE='local', LocalTaskQueue is used even with REDIS_URL configured."""
+        monkeypatch.setattr(
+            "backend.config.settings.settings.REDIS_URL", "redis://localhost:6379/0"
+        )
+        monkeypatch.setattr(
+            "backend.config.settings.settings.TASK_QUEUE_MODE", "local"
+        )
+        from backend.worker.queue_adapter import get_task_queue, LocalTaskQueue, reset_task_queue
+        reset_task_queue()
+        queue = get_task_queue()
+        assert isinstance(queue, LocalTaskQueue)
+        assert queue.mode == "local"
+
     def test_get_task_queue_falls_back_to_local_when_celery_missing(self, monkeypatch):
         """Even if REDIS_URL is set, missing celery package → LocalTaskQueue."""
         monkeypatch.setattr(

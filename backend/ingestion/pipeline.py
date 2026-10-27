@@ -27,6 +27,12 @@ from backend.ingestion.cloner import (
     clone_repository,
     load_local_repository,
 )
+from backend.ingestion.hash_tracker import (
+    ManifestDiff,
+    compute_file_sha256,
+    compute_manifest_diff,
+    load_repository_manifest,
+)
 from backend.ingestion.models import (
     CodeChunk,
     ContentType,
@@ -172,6 +178,8 @@ class IngestionResult:
         files_failed: int,
         clone_result: Optional[CloneResult] = None,
         duration_seconds: float = 0.0,
+        current_manifest: Optional[dict[str, str]] = None,
+        manifest_diff: Optional[ManifestDiff] = None,
     ):
         self.chunks = chunks
         self.files_discovered = files_discovered
@@ -179,6 +187,8 @@ class IngestionResult:
         self.files_failed = files_failed
         self.clone_result = clone_result
         self.duration_seconds = duration_seconds
+        self.current_manifest = current_manifest or {}
+        self.manifest_diff = manifest_diff
 
     @property
     def total_chunks(self) -> int:
@@ -253,6 +263,19 @@ def run_ingestion(
             repo_root, max_file_size_mb=max_file_size_mb
         )
 
+        current_manifest: dict[str, str] = {}
+        for file in discovered:
+            try:
+                current_manifest[file.path] = compute_file_sha256(file.absolute_path)
+            except Exception as e:
+                logger.warning("Could not compute hash for %s: %s", file.path, e)
+
+        manifest_diff: Optional[ManifestDiff] = None
+        if repository_id:
+            previous_manifest = load_repository_manifest(repository_id)
+            if previous_manifest:
+                manifest_diff = compute_manifest_diff(previous_manifest, current_manifest)
+
         if not discovered:
             _progress(100.0, "No files found")
             return IngestionResult(
@@ -262,6 +285,8 @@ def run_ingestion(
                 files_failed=0,
                 clone_result=clone_result,
                 duration_seconds=time.time() - start_time,
+                current_manifest=current_manifest,
+                manifest_diff=manifest_diff,
             )
 
         # ── Step 4: Parse & Chunk ──────────────────────────────────────────
@@ -308,6 +333,8 @@ def run_ingestion(
             files_failed=files_failed,
             clone_result=clone_result,
             duration_seconds=duration,
+            current_manifest=current_manifest,
+            manifest_diff=manifest_diff,
         )
 
         logger.info("Ingestion completed: %s", result)

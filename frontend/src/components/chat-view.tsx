@@ -7,6 +7,7 @@ import {
   chatApi,
   agentApi,
   reposApi,
+  conversationsApi,
   RepositoryResponse,
   Citation,
   ChatRequest,
@@ -16,6 +17,8 @@ import {
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import "highlight.js/styles/github-dark.css";
 import {
   ArrowLeft,
   Send,
@@ -98,6 +101,7 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [reconnectAttempt, setReconnectAttempt] = useState<number>(0);
+  const [serverConvId, setServerConvId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -138,14 +142,44 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
   // ── Load Chat History ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!isDirectChat && initialRepoId) {
-      const saved = localStorage.getItem(`chat_history_${initialRepoId}`);
-      if (saved) {
-        try {
-          setMessages(JSON.parse(saved));
-        } catch {
-          // ignore
-        }
-      }
+      conversationsApi
+        .list(initialRepoId, 0, 1)
+        .then((convs) => {
+          if (convs && convs.length > 0) {
+            setServerConvId(convs[0].id);
+            return conversationsApi.get(convs[0].id);
+          }
+          return null;
+        })
+        .then((detail) => {
+          if (detail && detail.messages.length > 0) {
+            setMessages(
+              detail.messages.map((m) => ({
+                id: m.id,
+                role: m.role as "user" | "assistant",
+                content: m.content,
+                citations: m.citations,
+                model: m.model_name || undefined,
+                tokensUsed: m.tokens_used || undefined,
+              }))
+            );
+          } else {
+            const saved = localStorage.getItem(`chat_history_${initialRepoId}`);
+            if (saved) {
+              try {
+                setMessages(JSON.parse(saved));
+              } catch {}
+            }
+          }
+        })
+        .catch(() => {
+          const saved = localStorage.getItem(`chat_history_${initialRepoId}`);
+          if (saved) {
+            try {
+              setMessages(JSON.parse(saved));
+            } catch {}
+          }
+        });
     } else {
       // Direct chat: load active session
       const loadActiveSession = () => {
@@ -299,6 +333,29 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
     setAttachedFiles([]);
     setIsLoading(true);
 
+    let activeConvId = serverConvId;
+    if (!activeConvId) {
+      try {
+        const newConv = await conversationsApi.create({
+          title: rawQuery.slice(0, 50),
+          repository_id: effectiveRepoId || undefined,
+        });
+        activeConvId = newConv.id;
+        setServerConvId(newConv.id);
+      } catch (e) {
+        console.warn("Could not create server conversation:", e);
+      }
+    }
+
+    if (activeConvId) {
+      conversationsApi
+        .addMessage(activeConvId, {
+          role: "user",
+          content: rawQuery,
+        })
+        .catch((e) => console.warn("Failed to persist user message to server:", e));
+    }
+
     try {
       if (agentMode && effectiveRepoId) {
         // Agent reasoning mode
@@ -320,6 +377,18 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
         };
         setMessages((prev) => [...prev, assistantMsg]);
         if (res.citations.length > 0) setSelectedCitation(res.citations[0]);
+
+        if (activeConvId) {
+          conversationsApi
+            .addMessage(activeConvId, {
+              role: "assistant",
+              content: res.answer,
+              citations: res.citations,
+              model_name: res.model,
+              tokens_used: res.tokens_used,
+            })
+            .catch(() => {});
+        }
       } else if (effectiveRepoId) {
         // Chat mode with SSE streaming & exponential backoff reconnection
         const payload: ChatRequest = {
@@ -372,6 +441,7 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
             const decoder = new TextDecoder();
             let buffer = "";
             let finalCitations: Citation[] = [];
+            let accumulatedText = "";
 
              
             while (true) {
@@ -404,6 +474,7 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
                 }
 
                 if (chunk.token !== undefined && chunk.token !== null) {
+                  accumulatedText += chunk.token;
                   setMessages((prev) =>
                     prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + chunk.token } : m))
                   );
@@ -420,6 +491,15 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
             }
 
             streamSucceeded = !controller.signal.aborted;
+            if (streamSucceeded && activeConvId && accumulatedText) {
+              conversationsApi
+                .addMessage(activeConvId, {
+                  role: "assistant",
+                  content: accumulatedText,
+                  citations: finalCitations,
+                })
+                .catch(() => {});
+            }
             break; // Stream succeeded or completed, break retry loop!
           } catch (streamErr) {
             if (controller.signal.aborted || (streamErr as Error)?.name === "AbortError") {
@@ -454,6 +534,18 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
             )
           );
           if (res.citations.length > 0) setSelectedCitation(res.citations[0]);
+
+          if (activeConvId) {
+            conversationsApi
+              .addMessage(activeConvId, {
+                role: "assistant",
+                content: res.answer,
+                citations: res.citations,
+                model_name: res.model,
+                tokens_used: res.tokens_used,
+              })
+              .catch(() => {});
+          }
         }
       }
     } catch (err: unknown) {
@@ -618,7 +710,9 @@ export function ChatView({ initialRepoId, showRepoSelector = true }: ChatViewPro
                       }`}
                     >
                       <div className="prose prose-invert prose-xs sm:prose-sm max-w-none prose-pre:bg-[#0A0A0A] prose-pre:border prose-pre:border-[#242424] prose-code:text-[#D99A45]">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                          {m.content}
+                        </ReactMarkdown>
                         {isStreaming && m.role === "assistant" && m === messages[messages.length - 1] && (
                           <span
                             className="inline-block w-[2px] h-[1em] bg-[#D99A45] ml-0.5 align-middle animate-pulse"

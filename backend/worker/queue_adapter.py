@@ -222,10 +222,16 @@ def _build_queue() -> BaseTaskQueue:
     Detect which mode to use based on environment configuration.
 
     Selection rules:
-      1. REDIS_URL set + celery installed + redis installed → RedisTaskQueue
-      2. Otherwise → LocalTaskQueue
+      1. Explicit TASK_QUEUE_MODE == "local" → LocalTaskQueue (even if REDIS_URL is configured)
+      2. Otherwise: REDIS_URL set + celery installed + redis installed → RedisTaskQueue
+      3. Otherwise → LocalTaskQueue
     """
     from backend.config.settings import settings
+
+    queue_mode = getattr(settings, "TASK_QUEUE_MODE", "auto").strip().lower()
+    if queue_mode == "local":
+        logger.info("TaskQueue: TASK_QUEUE_MODE='local' explicitly configured — using local in-process queue")
+        return LocalTaskQueue()
 
     if not settings.REDIS_URL:
         logger.info("TaskQueue: REDIS_URL not set — using local in-process queue")
