@@ -1,4 +1,18 @@
 import { test, expect } from "@playwright/test";
+async function authenticateTestUser(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "preview_dev_user",
+      JSON.stringify({
+        id: "e2e-test-user",
+        email: "e2e@example.com",
+        is_active: true,
+        is_superuser: false,
+        created_at: "2026-01-01T00:00:00Z",
+      })
+    );
+  });
+}
 
 test.describe("CodeSense AI - Frontend E2E Test Suite", () => {
   test("1. Login page renders authentication controls", async ({ page }) => {
@@ -23,6 +37,7 @@ test.describe("CodeSense AI - Frontend E2E Test Suite", () => {
   });
 
   test("3. Chat interface renders chat controls and suggestions", async ({ page }) => {
+    await authenticateTestUser(page);
     await page.goto("/app/chat");
 
     // Textarea input should be available
@@ -41,6 +56,7 @@ test.describe("CodeSense AI - Frontend E2E Test Suite", () => {
   });
 
   test("4. Repository management page has connect button", async ({ page }) => {
+    await authenticateTestUser(page);
     await page.goto("/app/repositories");
     
     // Check for Connect Repository button or heading
@@ -49,6 +65,7 @@ test.describe("CodeSense AI - Frontend E2E Test Suite", () => {
   });
 
   test("5. Navigation bar enables switching between views", async ({ page }) => {
+    await authenticateTestUser(page);
     await page.goto("/app");
     
     // Check links to Repositories, Chat, Search
