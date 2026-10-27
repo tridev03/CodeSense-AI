@@ -157,6 +157,11 @@ class Repository(Base):
         cascade="all, delete-orphan",
         order_by="IndexingJob.created_at.desc()",
     )
+    conversations: Mapped[List["Conversation"]] = relationship(
+        "Conversation",
+        cascade="all, delete-orphan",
+        foreign_keys="Conversation.repository_id",
+    )
 
     def __repr__(self) -> str:
         return f"<Repository id={self.id} name={self.name!r} status={self.status}>"
@@ -215,3 +220,86 @@ class IndexingJob(Base):
             f"<IndexingJob id={self.id} repo={self.repository_id} "
             f"status={self.status} progress={self.progress:.1f}%>"
         )
+
+
+class Conversation(Base):
+    """
+    Tracks a persistent conversational session (CHAT-01).
+    """
+    __tablename__ = "conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    repository_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("repositories.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(
+        String(500), nullable=False, default="New Conversation"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    # ── Relationships ──────────────────────────────────────────────────────────
+    messages: Mapped[List["Message"]] = relationship(
+        "Message",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="Message.created_at.asc()",
+    )
+
+
+class Message(Base):
+    """
+    A single chat message within a conversation.
+    """
+    __tablename__ = "messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="user"
+    )
+    content: Mapped[str] = mapped_column(
+        Text, nullable=False
+    )
+    citations: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="JSON-serialized citations list"
+    )
+    model_name: Mapped[Optional[str]] = mapped_column(
+        String(128), nullable=True
+    )
+    tokens_used: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    conversation: Mapped[Conversation] = relationship(
+        "Conversation", back_populates="messages"
+    )
+
