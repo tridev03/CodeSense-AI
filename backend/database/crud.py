@@ -9,6 +9,7 @@ Rules enforced here:
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime
 from typing import Optional, Sequence
@@ -17,8 +18,10 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.models import (
+    Conversation,
     IndexingJob,
     IndexingJobStatus,
+    Message,
     Repository,
     RepositorySourceType,
     RepositoryStatus,
@@ -286,3 +289,141 @@ async def update_indexing_job(
             update(IndexingJob).where(IndexingJob.id == job_id).values(**values)
         )
     return await get_indexing_job(db, job_id)
+
+
+# ─── Conversation & Messages (CHAT-01) ─────────────────────────────────────────
+
+
+async def create_conversation(
+    db: AsyncSession,
+    *,
+    user_id: Optional[uuid.UUID] = None,
+    repository_id: Optional[uuid.UUID] = None,
+    title: str = "New Conversation",
+) -> Conversation:
+    """Create a new conversation session. Caller must commit."""
+    conv = Conversation(
+        user_id=user_id,
+        repository_id=repository_id,
+        title=title,
+    )
+    db.add(conv)
+    await db.flush()
+    await db.refresh(conv)
+    return conv
+
+
+async def get_conversation(
+    db: AsyncSession,
+    conversation_id: uuid.UUID,
+    *,
+    user_id: Optional[uuid.UUID] = None,
+) -> Optional[Conversation]:
+    """Fetch conversation by ID, optionally ensuring user ownership."""
+    stmt = select(Conversation).where(Conversation.id == conversation_id)
+    if user_id is not None:
+        stmt = stmt.where(Conversation.user_id == user_id)
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def list_conversations(
+    db: AsyncSession,
+    *,
+    user_id: Optional[uuid.UUID] = None,
+    repository_id: Optional[uuid.UUID] = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> Sequence[Conversation]:
+    """List conversations filtered by user and/or repository, newest updated first."""
+    stmt = select(Conversation)
+    if user_id is not None:
+        stmt = stmt.where(Conversation.user_id == user_id)
+    if repository_id is not None:
+        stmt = stmt.where(Conversation.repository_id == repository_id)
+    stmt = stmt.order_by(Conversation.updated_at.desc()).offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+async def update_conversation_title(
+    db: AsyncSession,
+    conversation_id: uuid.UUID,
+    title: str,
+    *,
+    user_id: Optional[uuid.UUID] = None,
+) -> Optional[Conversation]:
+    """Update title of a conversation."""
+    stmt = update(Conversation).where(Conversation.id == conversation_id)
+    if user_id is not None:
+        stmt = stmt.where(Conversation.user_id == user_id)
+    stmt = stmt.values(title=title, updated_at=func.now())
+    await db.execute(stmt)
+    return await get_conversation(db, conversation_id, user_id=user_id)
+
+
+async def delete_conversation(
+    db: AsyncSession,
+    conversation_id: uuid.UUID,
+    *,
+    user_id: Optional[uuid.UUID] = None,
+) -> bool:
+    """Delete a conversation and its cascaded messages."""
+    conv = await get_conversation(db, conversation_id, user_id=user_id)
+    if not conv:
+        return False
+    await db.delete(conv)
+    await db.flush()
+    return True
+
+
+async def create_message(
+    db: AsyncSession,
+    *,
+    conversation_id: uuid.UUID,
+    role: str,
+    content: str,
+    citations: Optional[Any] = None,
+    model_name: Optional[str] = None,
+    tokens_used: Optional[int] = None,
+) -> Message:
+    """Append a message to a conversation and update conversation updated_at."""
+    citations_json = None
+    if citations is not None:
+        if isinstance(citations, str):
+            citations_json = citations
+        else:
+            citations_json = json.dumps(citations)
+
+    msg = Message(
+        conversation_id=conversation_id,
+        role=role,
+        content=content,
+        citations=citations_json,
+        model_name=model_name,
+        tokens_used=tokens_used,
+    )
+    db.add(msg)
+    # bump conversation updated_at
+    await db.execute(
+        update(Conversation)
+        .where(Conversation.id == conversation_id)
+        .values(updated_at=func.now())
+    )
+    await db.flush()
+    await db.refresh(msg)
+    return msg
+
+
+async def list_messages(
+    db: AsyncSession,
+    conversation_id: uuid.UUID,
+) -> Sequence[Message]:
+    """Fetch all messages for a conversation ordered chronologically."""
+    result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation_id)
+        .order_by(Message.created_at.asc())
+    )
+    return result.scalars().all()
+

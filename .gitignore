@@ -10,7 +10,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -85,3 +85,8 @@ evaluation/results/*.csv
 
 # Distribution archives
 *.zip
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+

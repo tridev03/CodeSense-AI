@@ -180,6 +180,7 @@ from backend.api.routes import (  # noqa: E402
     agent,
     auth,
     chat,
+    conversations,
     evaluation,
     git,
     health,
@@ -197,6 +198,7 @@ app.include_router(repositories.router, prefix=settings.API_V1_PREFIX)
 app.include_router(search.router, prefix=settings.API_V1_PREFIX)
 app.include_router(chat.router, prefix=settings.API_V1_PREFIX)
 app.include_router(chat.direct_router, prefix=settings.API_V1_PREFIX)  # direct file chat
+app.include_router(conversations.router, prefix=settings.API_V1_PREFIX)  # CHAT-01 persistent chat
 app.include_router(git.router, prefix=settings.API_V1_PREFIX)
 app.include_router(agent.router, prefix=settings.API_V1_PREFIX)
 app.include_router(evaluation.router, prefix=settings.API_V1_PREFIX)

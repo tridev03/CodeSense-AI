@@ -30,7 +30,7 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 512M
+          memory: 384M
     networks:
       - internal_network
 
@@ -41,6 +41,7 @@ services:
       dockerfile: docker/Dockerfile.backend
     container_name: ai_knowledge_backend
     restart: unless-stopped
+    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
     ports:
       - "8000:8000"
     env_file:
@@ -53,6 +54,10 @@ services:
       - EMBEDDING_DEVICE=cuda
       - RERANKER_DEVICE=cuda
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - TASK_QUEUE_MODE=${TASK_QUEUE_MODE:-local}
+      - OMP_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - TORCH_NUM_THREADS=1
     depends_on:
       postgres:
         condition: service_healthy
@@ -73,7 +78,7 @@ services:
       resources:
         limits:
           cpus: "1.5"
-          memory: 1200M
+          memory: 768M
         reservations:
           devices:
             - driver: nvidia
@@ -87,6 +92,7 @@ services:
   # instead of the FastAPI server. Scale horizontally with:
   #   docker compose -f docker/docker-compose.yml up -d --scale worker=4
   worker:
+    profiles: ["extra-worker"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
@@ -113,6 +119,9 @@ services:
       - EMBEDDING_DEVICE=cuda
       - RERANKER_DEVICE=cuda
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - OMP_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - TORCH_NUM_THREADS=1
     depends_on:
       postgres:
         condition: service_healthy
@@ -132,8 +141,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.5"
-          memory: 1200M
+          cpus: "1.0"
+          memory: 512M
         reservations:
           devices:
             - driver: nvidia
@@ -147,6 +156,12 @@ services:
     image: postgres:16-alpine
     container_name: ai_knowledge_postgres
     restart: unless-stopped
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=4MB
+      -c maintenance_work_mem=16MB
+      -c max_connections=30
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
@@ -165,7 +180,7 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 384M
+          memory: 192M
     networks:
       - internal_network
 
@@ -181,9 +196,10 @@ services:
       - qdrant_data:/qdrant/storage
     environment:
       QDRANT__TELEMETRY_DISABLED: "true"
+      QDRANT__STORAGE__ON_DISK_PAYLOAD: "true"
+      QDRANT__SERVICE__MAX_REQUEST_SIZE_MB: "32"
     healthcheck:
       test: ["CMD", "/usr/bin/bash", "-c", "echo > /dev/tcp/127.0.0.1/6333"]
-      #test: ["CMD", "/bin/sh", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -192,7 +208,7 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 512M
+          memory: 256M
     networks:
       - internal_network
 
@@ -205,9 +221,8 @@ services:
       - "127.0.0.1:6379:6379"  # Bound to loopback (DEP-04)
     command: >
       redis-server
-      --appendonly yes
-      --appendfilename redis.aof
-      --maxmemory 128mb
+      --appendonly no
+      --maxmemory 48mb
       --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
@@ -221,7 +236,7 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: 128M
+          memory: 64M
     networks:
       - internal_network
 
