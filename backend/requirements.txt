@@ -12,6 +12,7 @@ structlog>=24.4.0
 # ─── Configuration & Schema Validation ──────────────────────────────────────
 pydantic>=2.9.0
 pydantic-settings>=2.5.0
+email-validator>=2.0.0
 
 # ─── Database & Migrations ──────────────────────────────────────────────────
 sqlalchemy[asyncio]>=2.0.35

@@ -11,10 +11,9 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.dependencies import get_db
-from backend.database import crud
+from backend.api.dependencies import get_valid_repository
+from backend.database.models import Repository
 from backend.evaluation.runner import GenerationEvaluator
 from backend.schemas.evaluation import GenerationEvalReport, GenerationEvalRequest
 
@@ -37,22 +36,16 @@ router = APIRouter(tags=["evaluation"])
 async def evaluate_generation(
     repository_id: uuid.UUID,
     request: GenerationEvalRequest,
-    db: AsyncSession = Depends(get_db),
+    repo: Repository = Depends(get_valid_repository),
 ) -> GenerationEvalReport:
     """
     Evaluate LLM Generation & Answer Quality.
 
     Raises:
         404 — if repository does not exist.
+        403 — if user lacks tenant access.
         500 — if evaluation pipeline encounters an unexpected error.
     """
-    repo = await crud.get_repository(db, repository_id)
-    if repo is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Repository {repository_id} not found.",
-        )
-
     logger.info(
         "Evaluate generation requested | repo=%s | questions=%d | mode=%s",
         repository_id,

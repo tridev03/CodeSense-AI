@@ -34,8 +34,14 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 def _create_engine() -> AsyncEngine:
     """Instantiate the async SQLAlchemy engine with connection pool settings."""
+    url = settings.async_database_url
+    if "sqlite" in url:
+        return create_async_engine(
+            url,
+            echo=settings.is_development,
+        )
     return create_async_engine(
-        settings.async_database_url,
+        url,
         echo=settings.is_development,   # Log SQL in dev; never in prod
         pool_size=10,
         max_overflow=20,

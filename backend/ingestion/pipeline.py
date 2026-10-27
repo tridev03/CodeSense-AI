@@ -203,6 +203,7 @@ def run_ingestion(
     branch: Optional[str] = "main",
     repository_id: Optional[str] = None,
     max_file_size_mb: float = 5.0,
+    max_processing_time_seconds: float = 600.0,
     progress_callback: Optional[ProgressCallback] = None,
 ) -> IngestionResult:
     """
@@ -214,6 +215,7 @@ def run_ingestion(
         branch: Git branch to clone (ignored for local paths).
         repository_id: UUID string for the repository.
         max_file_size_mb: Maximum file size to process.
+        max_processing_time_seconds: Maximum allowed time in seconds.
         progress_callback: Optional callback(progress_pct, step_description).
 
     Returns:
@@ -221,6 +223,7 @@ def run_ingestion(
 
     Raises:
         ClonerError: If cloning/loading fails.
+        TimeoutError: If processing time exceeds maximum limit.
     """
     start_time = time.time()
 
@@ -269,6 +272,11 @@ def run_ingestion(
         files_failed = 0
 
         for i, file in enumerate(discovered):
+            if time.time() - start_time > max_processing_time_seconds:
+                raise TimeoutError(
+                    f"Ingestion exceeded maximum allowed processing time of {max_processing_time_seconds}s."
+                )
+
             # Progress update every 10 files
             if i % 10 == 0 or i == len(discovered) - 1:
                 pct = 20.0 + (i / len(discovered)) * 75.0

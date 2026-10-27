@@ -24,7 +24,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.dependencies import get_db
 from backend.database.user_models import User
-from backend.schemas.auth import LoginRequest, TokenResponse, UserCreate, UserResponse
+from backend.schemas.auth import (
+    LoginRequest,
+    ResetPasswordRequest,
+    TokenResponse,
+    UserCreate,
+    UserResponse,
+)
 from backend.security.auth import (
     _ACCESS_TOKEN_EXPIRE_MINUTES,
     create_access_token,
@@ -138,6 +144,33 @@ async def login(
         token_type="bearer",
         expires_in=_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
+
+
+# ── POST /auth/reset-password ────────────────────────────────────────────────
+
+
+@router.post(
+    "/reset-password",
+    status_code=status.HTTP_200_OK,
+    summary="Reset user password by email",
+)
+async def reset_password(
+    payload: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Reset user password given email and new password.
+    """
+    user = await _get_user_by_email(db, payload.email.lower())
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No user account found with that email address.",
+        )
+
+    user.hashed_password = get_password_hash(payload.new_password)
+    await db.commit()
+    return {"message": "Password has been successfully updated. You can now sign in."}
 
 
 # ── GET /auth/me ──────────────────────────────────────────────────────────────

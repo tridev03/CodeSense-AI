@@ -60,7 +60,9 @@ class BaseTaskQueue:
 
     mode: str = "base"
 
-    async def submit_indexing_job(self, repository_id: str) -> str:
+    async def submit_indexing_job(
+        self, repository_id: str, owner_id: Optional[str] = None
+    ) -> str:
         """Enqueue a repository indexing job. Returns task_id."""
         raise NotImplementedError
 
@@ -86,7 +88,9 @@ class LocalTaskQueue(BaseTaskQueue):
 
     mode = "local"
 
-    async def submit_indexing_job(self, repository_id: str) -> str:
+    async def submit_indexing_job(
+        self, repository_id: str, owner_id: Optional[str] = None
+    ) -> str:
         from backend.worker.tasks import get_task_worker
 
         async def _index_coro():
@@ -97,10 +101,13 @@ class LocalTaskQueue(BaseTaskQueue):
                 return await svc.execute_indexing(uuid.UUID(repository_id))
 
         worker = get_task_worker()
+        metadata = {"repository_id": repository_id, "mode": self.mode}
+        if owner_id:
+            metadata["owner_id"] = str(owner_id)
         task_id = worker.submit(
             name="index_repository",
             coro_fn=_index_coro,
-            metadata={"repository_id": repository_id, "mode": self.mode},
+            metadata=metadata,
             max_retries=3,
         )
         logger.info("LocalTaskQueue: submitted index_repository task=%s repo=%s", task_id, repository_id)
@@ -141,16 +148,21 @@ class RedisTaskQueue(BaseTaskQueue):
         from backend.worker.celery_app import get_celery_app
         self._celery = get_celery_app()
 
-    async def submit_indexing_job(self, repository_id: str) -> str:
+    async def submit_indexing_job(
+        self, repository_id: str, owner_id: Optional[str] = None
+    ) -> str:
         """
         Enqueue a repository indexing job to Redis.
 
         The Celery worker container will pick it up asynchronously.
         Returns a Celery task UUID (hex string without dashes).
         """
+        task_kwargs = {"args": [repository_id]}
+        if owner_id:
+            task_kwargs["kwargs"] = {"owner_id": owner_id}
         result = self._celery.send_task(
             "backend.worker.celery_tasks.index_repository",
-            args=[repository_id],
+            **task_kwargs,
         )
         task_id = str(result.id)
         logger.info("RedisTaskQueue: enqueued index_repository task=%s repo=%s", task_id, repository_id)

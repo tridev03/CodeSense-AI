@@ -1,0 +1,67 @@
+[
+  {
+    "id": "q1_auth_jwt",
+    "query": "Where and how is user authentication and JWT token verification implemented?",
+    "intent": "code",
+    "expected_files": ["backend/security/auth.py", "backend/api/dependencies.py", "auth.py"],
+    "expected_symbols": ["create_access_token", "get_current_user", "TokenManager"],
+    "category": "security"
+  },
+  {
+    "id": "q2_db_models",
+    "query": "What database models and relations are defined in the schema?",
+    "intent": "code",
+    "expected_files": ["backend/database/models.py", "models.py"],
+    "expected_symbols": ["User", "Repository", "IndexingJob", "Conversation", "Message"],
+    "category": "data_layer"
+  },
+  {
+    "id": "q3_hybrid_retrieval",
+    "query": "How is hybrid retrieval combining vector search and BM25 reciprocal rank fusion implemented?",
+    "intent": "code",
+    "expected_files": ["backend/retrieval/hybrid.py", "backend/retrieval/fusion.py", "backend/retrieval/bm25.py"],
+    "expected_symbols": ["HybridRetriever", "reciprocal_rank_fusion", "BM25Index"],
+    "category": "search_and_retrieval"
+  },
+  {
+    "id": "q4_git_ssrf_validation",
+    "query": "How are GitHub repository URLs validated to prevent SSRF and unsafe destinations?",
+    "intent": "code",
+    "expected_files": ["backend/security/validator.py", "backend/ingestion/cloner.py"],
+    "expected_symbols": ["GitUrlValidator", "validate_url", "Cloner"],
+    "category": "security"
+  },
+  {
+    "id": "q5_sse_streaming_chat",
+    "query": "Which endpoint streams token responses via Server-Sent Events SSE to the client?",
+    "intent": "code",
+    "expected_files": ["backend/api/routes/chat.py", "backend/services/rag_service.py"],
+    "expected_symbols": ["stream_chat_response", "chat_stream"],
+    "category": "api_routing"
+  },
+  {
+    "id": "q6_agent_reflection",
+    "query": "How does the agent inspect context and reflect when search results are insufficient?",
+    "intent": "code",
+    "expected_files": ["backend/agent/reflector.py", "backend/agent/runner.py", "backend/agent/router.py"],
+    "expected_symbols": ["Reflector", "reflect", "QueryRouter"],
+    "category": "autonomous_agent"
+  },
+  {
+    "id": "q7_git_commit_extraction",
+    "query": "How does the ingestion pipeline extract commit history and author information?",
+    "intent": "code",
+    "expected_files": ["backend/ingestion/git_extractor.py", "backend/services/repository_service.py"],
+    "expected_symbols": ["extract_commit_history", "store_commits", "commits_to_chunks"],
+    "category": "ingestion"
+  },
+  {
+    "id": "q8_cross_encoder_rerank",
+    "query": "How does the BGE cross-encoder reranker score and order retrieved code passages?",
+    "intent": "code",
+    "expected_files": ["backend/reranking/__init__.py", "backend/retrieval/hybrid.py"],
+    "expected_symbols": ["RerankerService", "rerank", "bge-reranker"],
+    "category": "search_and_retrieval"
+  }
+]
+

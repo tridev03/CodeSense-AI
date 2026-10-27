@@ -208,3 +208,32 @@ def run_retrieval_ablation(
         markdown_table=markdown_table,
     )
 
+
+def load_curated_benchmark_dataset(dataset_path: Optional[str] = None) -> List[EvalQuery]:
+    """
+    Load curated evaluation benchmark questions with expected source files and symbols.
+    """
+    import json
+    from pathlib import Path
+
+    if dataset_path:
+        p = Path(dataset_path)
+    else:
+        p = Path(__file__).parent.parent / "evaluation" / "benchmark_dataset.json"
+
+    if not p.exists():
+        return []
+
+    with open(p, "r", encoding="utf-8") as f:
+        items = json.load(f)
+
+    return [
+        EvalQuery(
+            query=item["query"],
+            expected_files=item.get("expected_files", []),
+            expected_chunk_ids=item.get("expected_chunk_ids", []),
+        )
+        for item in items
+    ]
+
+

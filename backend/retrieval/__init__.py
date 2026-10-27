@@ -144,6 +144,31 @@ class VectorStoreService:
             except Exception as exc:
                 logger.warning("Failed to delete collection %s: %s", col_name, exc)
 
+    def delete_chunks_by_file(self, repository_id: str, file_path: str) -> None:
+        """Remove stale chunks associated with a modified or deleted file."""
+        col_name = _collection_name(repository_id)
+        if self._is_mock:
+            if col_name in self._mock_store:
+                self._mock_store[col_name] = [
+                    p for p in self._mock_store[col_name]
+                    if p.get("payload", {}).get("file_path") != file_path
+                ]
+            return
+
+        client = self._get_client()
+        if client:
+            try:
+                from qdrant_client.http.models import FieldCondition, Filter, MatchValue
+                client.delete(
+                    collection_name=col_name,
+                    points_selector=Filter(
+                        must=[FieldCondition(key="file_path", match=MatchValue(value=file_path))]
+                    ),
+                )
+                logger.info("Deleted stale chunks for %s in %s", file_path, col_name)
+            except Exception as exc:
+                logger.warning("Failed to delete stale chunks for file %s: %s", file_path, exc)
+
     def upsert_chunks(
         self,
         repository_id: str,
@@ -167,13 +192,19 @@ class VectorStoreService:
         col_name = self.ensure_collection(repository_id)
 
         if self._is_mock:
+            existing_idx = {p["id"]: i for i, p in enumerate(self._mock_store[col_name])}
             for chunk, vector in zip(chunks, embeddings):
-                self._mock_store[col_name].append({
+                point_data = {
                     "id": chunk.chunk_id,
                     "vector": vector.tolist(),
                     "payload": chunk.to_metadata_dict(),
                     "content": chunk.content,
-                })
+                }
+                if chunk.chunk_id in existing_idx:
+                    self._mock_store[col_name][existing_idx[chunk.chunk_id]] = point_data
+                else:
+                    self._mock_store[col_name].append(point_data)
+                    existing_idx[chunk.chunk_id] = len(self._mock_store[col_name]) - 1
             logger.info(
                 "Mock upserted %d vectors into %s", len(chunks), col_name
             )

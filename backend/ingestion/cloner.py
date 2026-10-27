@@ -50,18 +50,14 @@ class CloneResult:
 
 
 def _validate_github_url(url: str) -> None:
-    """Validate that the URL is a legitimate GitHub HTTPS URL."""
-    parsed = urlparse(url)
-    if parsed.scheme not in ("https", "http"):
-        raise ClonerError(f"Only HTTPS GitHub URLs are supported, got: {url}")
-    if "github.com" not in parsed.hostname:
-        raise ClonerError(f"Only GitHub repositories are supported, got: {url}")
-    # Must have at least /owner/repo
-    path_parts = [p for p in parsed.path.strip("/").split("/") if p]
-    if len(path_parts) < 2:
-        raise ClonerError(
-            f"GitHub URL must include owner and repo: {url}"
-        )
+    """Validate that the URL is a legitimate GitHub HTTPS URL and protected from SSRF."""
+    from backend.security.validators import GitUrlValidator, GitUrlValidationError
+
+    validator = GitUrlValidator()
+    try:
+        validator.validate_and_normalize(url)
+    except GitUrlValidationError as exc:
+        raise ClonerError(f"Security validation failed for repository URL: {exc}") from exc
 
 
 def _validate_local_path(path: str) -> str:
@@ -151,9 +147,27 @@ def clone_repository(
                 authed_url = f"{parsed.scheme}://x-access-token:{settings.GITHUB_TOKEN}@{parsed.hostname}{parsed.path}"
                 clone_kwargs["url"] = authed_url
 
-        repo = git.Repo.clone_from(**clone_kwargs)
+        try:
+            repo = git.Repo.clone_from(**clone_kwargs)
+        except git.GitCommandError as exc:
+            err_msg = str(exc.stderr or exc)
+            if branch and ("Remote branch" in err_msg or "Could not find remote branch" in err_msg):
+                logger.warning(
+                    "Branch '%s' not found for %s, falling back to remote default branch: %s",
+                    branch, url, err_msg
+                )
+                if target.exists():
+                    shutil.rmtree(str(target))
+                clone_kwargs.pop("branch", None)
+                repo = git.Repo.clone_from(**clone_kwargs)
+            else:
+                raise
+
         commit_hash = str(repo.head.commit.hexsha)
-        active_branch = str(repo.active_branch) if not repo.head.is_detached else branch
+        try:
+            active_branch = str(repo.active_branch)
+        except TypeError:
+            active_branch = branch or "HEAD"
 
         logger.info(
             "Clone completed: commit=%s branch=%s",

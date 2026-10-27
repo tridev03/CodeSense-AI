@@ -16,8 +16,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.dependencies import get_db
+from backend.api.dependencies import get_db, get_valid_repository
+from backend.database.models import Repository
 from backend.schemas.rag import ChatRequest, ChatResponse, ChatStreamChunk
+from backend.security.dependencies import CurrentUser, get_current_user
 from backend.services.rag_service import RAGService
 from backend.services.repository_service import RepositoryNotFoundError
 
@@ -40,12 +42,10 @@ def _rag_service(db: AsyncSession = Depends(get_db)) -> RAGService:
 async def chat_repository(
     repository_id: uuid.UUID,
     payload: ChatRequest,
+    repo: Repository = Depends(get_valid_repository),
     rag_svc: RAGService = Depends(_rag_service),
 ) -> ChatResponse:
-    try:
-        return await rag_svc.chat(repository_id, payload)
-    except RepositoryNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    return await rag_svc.chat(repo.id, payload)
 
 
 @router.post(
@@ -60,6 +60,7 @@ async def chat_repository(
 async def chat_repository_stream(
     repository_id: uuid.UUID,
     payload: ChatRequest,
+    repo: Repository = Depends(get_valid_repository),
     rag_svc: RAGService = Depends(_rag_service),
 ) -> StreamingResponse:
     """
@@ -126,7 +127,10 @@ class DirectChatRequest(BaseModel):
         "using the files as context. No repository connection required."
     ),
 )
-async def chat_direct_stream(payload: DirectChatRequest) -> StreamingResponse:
+async def chat_direct_stream(
+    payload: DirectChatRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> StreamingResponse:
     """
     SSE streaming endpoint for direct file-based chat.
     Works without any repository — files are passed as inline context.

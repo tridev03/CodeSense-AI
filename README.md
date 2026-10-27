@@ -265,3 +265,16 @@ Each test gets a fresh in-memory SQLite database (engine `scope="function"`) and
 
 ---
 
+## Development Phases
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| **1 — Foundation** | **Complete** | FastAPI, DB models, Repository CRUD, 28 tests |
+| **2 — Ingestion** | ✅ **Complete** | Tree-sitter AST parsing, semantic chunking, 42 tests |
+| **3 — RAG** | ✅ **Complete** | Qwen3 embeddings, Qdrant store, Groq generation, search/chat, 54 tests |
+| **4 — Retrieval** | ✅ **Complete** | BM25 keyword search, hybrid RRF, BGE reranking, ablation engine, 68 tests |
+| **5 — Git Intel** | ✅ **Complete** | Commit ingestion, diffs, Git-aware search, historical RAG, 73 tests |
+| **6 — Agent** | ✅ **Complete** | LangGraph multi-agent, code/docs/git tools, query routing, reflection, 89 tests |
+| **7 — Evaluation** | ✅ **Complete** | Faithfulness, Answer Relevance, Context Recall/Precision, Synthetic QA, 98 tests |
+| **8 — Production** | ✅ **Complete** | Docker, Alembic, Langfuse Tracing, Task Worker, Rate Limiting, 106 tests |
+| **9 — Frontend** | ✅ **Complete** | Next.js 16 (Turbopack) UI, Auth/JWT gating, Chat, Citations, Eval dashboard |

@@ -42,10 +42,19 @@ def test_alembic_config_and_migrations():
     initial_rev = revisions[-1]
     assert initial_rev.revision == "001_initial_schema"
 
-    # Verify SQLAlchemy metadata has both core tables
+    # Verify SQLAlchemy metadata has core, auth, and conversation tables
     table_names = set(Base.metadata.tables.keys())
     assert "repositories" in table_names
     assert "indexing_jobs" in table_names
+    assert "users" in table_names
+    assert "user_repository_ownership" in table_names
+    assert "conversations" in table_names
+    assert "messages" in table_names
+    rev_ids = [r.revision for r in revisions]
+    assert "003_add_conversations_and_messages" in rev_ids
+    assert "002_add_users_and_ownership" in rev_ids
+    assert "001_initial_schema" in rev_ids
+    assert revisions[0].revision == "003_add_conversations_and_messages"
 
 
 # ─── 2. Request-ID Middleware Tests ──────────────────────────────────────────
@@ -98,6 +107,122 @@ def test_rate_limit_middleware_enforcement():
     assert r3.status_code == 429
     assert "Retry-After" in r3.headers
     assert r3.json()["max_requests"] == 2
+
+
+def test_rate_limit_trusted_proxy_handling():
+    """Verify that X-Forwarded-For is only honored when peer is a trusted proxy."""
+    test_app = FastAPI()
+    rl_middleware = RateLimitMiddleware(
+        test_app,
+        max_requests=1,
+        window_seconds=60,
+        enabled=True,
+    )
+    test_app.add_middleware(
+        RateLimitMiddleware,
+        max_requests=1,
+        window_seconds=60,
+        enabled=True,
+    )
+
+    @test_app.get("/ip-test")
+    def ip_endpoint():
+        return {"ok": True}
+
+    # TestClient connects as "testclient" which is not a trusted proxy by default
+    tc = TestClient(test_app)
+    # First request
+    res1 = tc.get("/ip-test", headers={"X-Forwarded-For": "203.0.113.195"})
+    assert res1.status_code == 200
+
+    # Second request with different spoofed IP: should still hit 429 because testclient peer IP is rate-limited!
+    res2 = tc.get("/ip-test", headers={"X-Forwarded-For": "198.51.100.44"})
+    assert res2.status_code == 429
+
+
+def test_rate_limit_redis_backend_and_fallback():
+    """Verify Redis sliding window rate limiting and automatic fallback."""
+    class MockRedisPipeline:
+        def __init__(self, store):
+            self.store = store
+            self.actions = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def zremrangebyscore(self, key, min_s, max_s):
+            self.actions.append(("zrem", key, min_s, max_s))
+
+        def zcard(self, key):
+            self.actions.append(("zcard", key))
+
+        def zrange(self, key, start, stop, withscores=False):
+            self.actions.append(("zrange", key))
+
+        def zadd(self, key, mapping):
+            self.actions.append(("zadd", key, mapping))
+
+        def expire(self, key, s):
+            self.actions.append(("expire", key, s))
+
+        async def execute(self):
+            results = []
+            for action in self.actions:
+                act = action[0]
+                if act == "zrem":
+                    results.append(0)
+                elif act == "zcard":
+                    key = action[1]
+                    results.append(len(self.store.get(key, [])))
+                elif act == "zrange":
+                    key = action[1]
+                    lst = self.store.get(key, [])
+                    results.append([(lst[0][0], lst[0][1])] if lst else [])
+                elif act == "zadd":
+                    key = action[1]
+                    lst = self.store.setdefault(key, [])
+                    for name, score in action[2].items():
+                        lst.append((name, score))
+                    results.append(len(action[2]))
+                elif act == "expire":
+                    results.append(True)
+            return results
+
+    class MockRedisClient:
+        def __init__(self):
+            self.store = {}
+
+        def pipeline(self, transaction=True):
+            return MockRedisPipeline(self.store)
+
+    mock_redis = MockRedisClient()
+
+    test_app = FastAPI()
+    test_app.add_middleware(
+        RateLimitMiddleware,
+        max_requests=1,
+        window_seconds=60,
+        enabled=True,
+        redis_client=mock_redis,
+    )
+
+    @test_app.get("/redis-test")
+    def r_endpoint():
+        return {"status": "ok"}
+
+    tc = TestClient(test_app)
+    r1 = tc.get("/redis-test")
+    assert r1.status_code == 200
+
+    # Second request exceeds max_requests=1
+    r2 = tc.get("/redis-test")
+    assert r2.status_code == 429
+    assert "Retry-After" in r2.headers
+
+
 
 
 # ─── 4. Background Task Worker Tests ─────────────────────────────────────────

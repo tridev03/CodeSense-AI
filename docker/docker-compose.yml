@@ -30,7 +30,7 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 1024M
+          memory: 512M
     networks:
       - internal_network
 
@@ -47,11 +47,12 @@ services:
       - ../.env
     environment:
       - ENVIRONMENT=production
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_knowledge_agent
+      - DATABASE_URL=${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-ai_knowledge_agent}}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
-      - EMBEDDING_DEVICE=cpu
-      - RERANKER_DEVICE=cpu
+      - EMBEDDING_DEVICE=cuda
+      - RERANKER_DEVICE=cuda
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,6 +62,7 @@ services:
         condition: service_healthy
     volumes:
       - repo_storage:/app/storage/repos
+      - ../backend:/app/backend
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/liveness"]
       interval: 15s
@@ -70,8 +72,13 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 4096M
+          cpus: "1.5"
+          memory: 1200M
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     networks:
       - internal_network
 
@@ -86,26 +93,26 @@ services:
     container_name: ai_knowledge_worker
     restart: unless-stopped
     command:
-    - celery
-    - -A
-    - backend.worker.celery_app:app m  ,
-    - worker
-    - --loglevel=info
-    - --concurrency=${CELERY_CONCURRENCY:-2}
-    - --queues=celery
-    - --hostname=worker@%h
-      
+      - celery
+      - -A
+      - backend.worker.celery_app:app
+      - worker
+      - -I
+      - backend.worker.celery_tasks
+      - --loglevel=info
+      - --concurrency=${CELERY_CONCURRENCY:-1}
+      - --queues=celery
+      - --hostname=worker@%h
+    env_file:
+      - ../.env
     environment:
       - ENVIRONMENT=production
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_knowledge_agent
+      - DATABASE_URL=${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-ai_knowledge_agent}}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=${SECRET_KEY}
-      - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - GROQ_MODEL=${GROQ_MODEL:-qwen/qwen3.8-27b}
-      - EMBEDDING_DEVICE=cpu
-      - RERANKER_DEVICE=cpu
-      - CELERY_CONCURRENCY=${CELERY_CONCURRENCY:-2}
+      - EMBEDDING_DEVICE=cuda
+      - RERANKER_DEVICE=cuda
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     depends_on:
       postgres:
         condition: service_healthy
@@ -115,11 +122,23 @@ services:
         condition: service_healthy
     volumes:
       - repo_storage:/app/storage/repos
+      - ../backend:/app/backend
+    healthcheck:
+      test: ["CMD", "celery", "-A", "backend.worker.celery_app:app", "inspect", "ping", "--timeout", "5"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 4096M
+          cpus: "1.5"
+          memory: 1200M
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     networks:
       - internal_network
 
@@ -129,9 +148,9 @@ services:
     container_name: ai_knowledge_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: ai_knowledge_agent
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_knowledge_agent}
     ports:
       - "127.0.0.1:5432:5432"  # Bound to loopback to prevent external exposure (DEP-04)
     volumes:
@@ -146,7 +165,7 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 1024M
+          memory: 384M
     networks:
       - internal_network
 
@@ -172,8 +191,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 2048M
+          cpus: "1.0"
+          memory: 512M
     networks:
       - internal_network
 
@@ -188,7 +207,7 @@ services:
       redis-server
       --appendonly yes
       --appendfilename redis.aof
-      --maxmemory 512mb
+      --maxmemory 128mb
       --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
@@ -201,8 +220,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 512M
+          cpus: "0.5"
+          memory: 128M
     networks:
       - internal_network
 
